@@ -1,18 +1,18 @@
 package main
 
 import (
+    "context"
     "fmt"
-    "os"
     "io"
     "io/ioutil"
+    "math/rand"
     "net"
     "net/http"
     "net/url"
-    "time"
-    "log"
-    "strings"
+    "os"
     "strconv"
-    "math/rand"
+    "strings"
+    "time"
 )
 
 type hopHandler struct {}
@@ -72,8 +72,11 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
     showHeaders := false
     skip := false
-    q := false
     code := 200
+
+    q := func (c int) {
+        quit <- c
+    }
 
     for strings.HasPrefix(next_cmd, "-") {
         cmd := strings.SplitN(next_cmd, ":", 2)
@@ -198,9 +201,9 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             }
         case "-quit":
             r = append(r, "Quitting")
-            q = true
+            defer q(1)
         case "-crash":
-            return
+            defer q(2)
         }
     }
 
@@ -251,9 +254,6 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
         io.WriteString(w, line)
         io.WriteString(w, "\n")
     }
-    if q {
-        quit<-0
-    }
 }
 
 
@@ -263,7 +263,7 @@ func main() {
     if len(port) == 0 {
         port = "8000"
     }
-    fmt.Printf("Serving on %s\n", port)
+    fmt.Println("Serving on", port)
 
     s := &http.Server {
         Addr: net.JoinHostPort("", port),
@@ -272,13 +272,23 @@ func main() {
         WriteTimeout: 10 * time.Second,
         MaxHeaderBytes: 1 << 20,
     }
+
     go func() {
-        log.Fatal(s.ListenAndServe())
+        fmt.Println(s.ListenAndServe())
+        close(quit)
     }()
 
-    <-quit
-    if err := s.Shutdown(nil); err != nil {
-        panic(err)
+    switch <-quit {
+    case 1:
+        fmt.Println("Shutting down")
+        err := s.Shutdown(context.Background());
+        <-quit
+        if err != nil {
+            panic(err)
+        }
+    case 2:
+        panic("Rabbits are coming!")
     }
+    fmt.Println("Exiting normally")
 }
 
