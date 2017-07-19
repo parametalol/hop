@@ -107,6 +107,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
         case "-headers":
             showHeaders = true
             r = append(r, "Got headers:")
+            r = append(r, fmt.Sprintf(".\tHost: %s", req.Host))
             for h, v := range req.Header {
                 r = append(r, fmt.Sprintf(".\t%s: %s", h, v))
             }
@@ -190,11 +191,11 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             value, err := url.PathUnescape(hv[1])
             if err != nil {
                 r = append(r, fmt.Sprintf("Bad value for header %s: %s", hv[0], hv[1]))
-            } else if strings.Contains(req.Header.Get(hv[0]), value) {
-                r = append(r, fmt.Sprintf("Will do the next command because header %s is %s", hv[0], req.Header.Get(hv[0])))
                 continue
             }
-            skip = true
+            if !(strings.ToLower(hv[0]) == "host" && strings.Contains(req.Host, value)) && !strings.Contains(req.Header.Get(hv[0]), value) {
+                skip = true
+            }
         case "-rnd":
             if len(cmd) != 2 {
                 r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
