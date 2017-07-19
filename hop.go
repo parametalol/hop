@@ -64,6 +64,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
     showHeaders := false
     skip := false
+    not := false
     code := 0
 
     q := func (c int) {
@@ -178,6 +179,23 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             r = append(r, fmt.Sprintf("Appending %d bytes", b))
             r = append(r, strings.Repeat("X", b))
             r = append(r, "\n")
+        case "-not":
+            not = !not
+        case "-on":
+            if len(cmd) != 2 {
+                r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
+                continue
+            }
+            value, err := url.PathUnescape(cmd[1])
+            if err != nil {
+                r = append(r, fmt.Sprintf("Bad value for host name %s: %s", cmd[1]))
+                continue
+            }
+            skip = !strings.Contains(hn, value)
+            if not {
+                skip = !skip
+                not = false
+            }
         case "-if":
             if len(cmd) != 2 {
                 r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
@@ -193,8 +211,10 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
                 r = append(r, fmt.Sprintf("Bad value for header %s: %s", hv[0], hv[1]))
                 continue
             }
-            if !(strings.ToLower(hv[0]) == "host" && strings.Contains(req.Host, value)) && !strings.Contains(req.Header.Get(hv[0]), value) {
-                skip = true
+            skip = !(strings.ToLower(hv[0]) == "host" && strings.Contains(req.Host, value)) && !strings.Contains(req.Header.Get(hv[0]), value)
+            if not {
+                skip = !skip
+                not = false
             }
         case "-rnd":
             if len(cmd) != 2 {
@@ -206,9 +226,10 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
                 r = append(r, fmt.Sprintf("Cannot make a random of %s", cmd[1]))
                 continue
             }
-            if rand.Intn(100) < p {
-                skip = true
-                continue
+            skip = rand.Intn(100) < p
+            if not {
+                skip = !skip
+                not = false
             }
         case "-quit":
             r = append(r, "Quitting")
