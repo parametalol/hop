@@ -177,6 +177,24 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             r = append(r, fmt.Sprintf("Appending %d bytes", b))
             r = append(r, strings.Repeat("X", b))
             r = append(r, "\n")
+        case "-if":
+            if len(cmd) != 2 {
+                r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
+                continue
+            }
+            hv := strings.SplitN(cmd[1], "=", 2)
+            if len(hv) != 2 {
+                r = append(r, fmt.Sprintf("Missing header value for %s", cmd[0]))
+                continue
+            }
+            value, err := url.PathUnescape(hv[1])
+            if err != nil {
+                r = append(r, fmt.Sprintf("Bad value for header %s: %s", hv[0], hv[1]))
+            } else if strings.Contains(req.Header.Get(hv[0]), value) {
+                r = append(r, fmt.Sprintf("Will do the next command because header %s is %s", hv[0], req.Header.Get(hv[0])))
+                continue
+            }
+            skip = true
         case "-rnd":
             if len(cmd) != 2 {
                 r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
