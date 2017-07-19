@@ -21,23 +21,15 @@ var help = "-wait:[ms], -headers, -size:[bytes]"
 var quit = make(chan int)
 
 func callURL(url string, headers map[string]string, r []string) (*http.Response, error) {
-    client := &http.Client{ }
-    res, err := client.Get(url)
-    if err != nil {
-        return nil, err
-    }
     req, err := http.NewRequest("GET", url, nil)
-    if err != nil {
+    if err != nil || req == nil {
         return nil, err
     }
     for h, v := range headers {
         req.Header.Set(h, v)
     }
-    res, err = client.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    return res, nil
+    client := &http.Client{ }
+    return client.Do(req)
 }
 
 func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -72,7 +64,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
     showHeaders := false
     skip := false
-    code := 200
+    code := 0
 
     q := func (c int) {
         quit <- c
@@ -214,8 +206,14 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
         res, err := callURL(url, headers, r)
         if err != nil {
             r = append(r, fmt.Sprintf("Couldn't call %s. Got error: %s\n", url, err.Error()))
-        } else {
+        } else if res == nil {
+            r = append(r, fmt.Sprintf("Couldn't call %s by some reason\n", url))
+        }
+        if res != nil {
             r = append(r, fmt.Sprintf("Called %s with status %s", url, res.Status))
+            if code == 0 {
+                code = res.StatusCode
+            }
             if res.Body != nil {
                 data, err := ioutil.ReadAll(res.Body)
                 res.Body.Close()
@@ -243,10 +241,16 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
                 }
             }
         }
+        if code == 0 && err != nil {
+            code = 500
+        }
     }
 
     for h, v := range rheaders {
         w.Header().Set(h, v)
+    }
+    if code == 0 {
+        code = 200
     }
     w.WriteHeader(code)
     for _, line := range r {
