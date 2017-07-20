@@ -17,7 +17,23 @@ import (
 
 type hopHandler struct {}
 
-var help = "-wait:[ms], -headers, -size:[bytes]"
+var help = map[string]string {
+    "-code:N": "responde with HTTP code N",
+    "-crash": "stops the server without a response",
+    "-fheader:H": "forward incoming header H to the following request",
+    "-header:H=V": "add header H: V to the following request",
+    "-help": "return help message",
+    "-if:H=V": "execute next command if header H contains substring V",
+    "-info": "return some info about the request",
+    "-not": "reverts the effect of the next boolean command (if, on)",
+    "-on:H": "executes next command if the server host name contains substring H",
+    "-quit": "stops the server with a nice response",
+    "-rheader:H=V": "add header H: V to the reponse",
+    "-rnd:P": "execute next command with P% probability",
+    "-size:B": "add B bytes of payload to the response",
+    "-wait:T": "wait for T ms before response",
+}
+
 var quit = make(chan int)
 
 func callURL(url string, headers map[string]string, r []string) (*http.Response, error) {
@@ -93,6 +109,17 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
         }
 
         switch cmd[0] {
+        case "-help":
+            for k,v := range help {
+                r = append(r, fmt.Sprintf("%-13s - %s", k, v))
+            }
+            r = append(r, "Examples:")
+            r = append(r, "curl -H \"a: b\" hop1/-info")
+            r = append(r, "\tthis will call hop1 which will show some details of the request")
+            r = append(r, "curl -H \"a: b\" hop1/-fheader:a/hop2")
+            r = append(r, "\tthis will call hop1 which will call hop2 with forwarded header A")
+            r = append(r, "curl hop1/-rnd:50/hop2/hop3/-on:hop2/-code:500")
+            r = append(r, "\tthis will call hop1 which will call hop2 or hop3 (50%). hop2 would call hop3 and return error code 500.")
         case "-wait":
             if len(cmd) != 2 {
                 r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
@@ -105,9 +132,12 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             }
             time.Sleep(time.Duration(d) * time.Millisecond)
             r = append(r, fmt.Sprintf("Waited for %d ms", d))
-        case "-headers":
+        case "-info":
             showHeaders = true
-            r = append(r, "Got headers:")
+            r = append(r, fmt.Sprintf("%d bytes From %s", req.ContentLength, req.RemoteAddr))
+            r = append(r, fmt.Sprintf("%s %s %s", req.Method, req.RequestURI, req.Proto))
+
+            r = append(r, "Headers:")
             r = append(r, fmt.Sprintf(".\tHost: %s", req.Host))
             for h, v := range req.Header {
                 r = append(r, fmt.Sprintf(".\t%s: %s", h, v))
