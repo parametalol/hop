@@ -47,6 +47,22 @@ var transport *http.Transport
 var tlsClientConfig *tls.Config
 var tlsServerConfig *tls.Config
 
+func getRT(authority string, c *tls.Conn) http.RoundTripper {
+    var dt http.RoundTripper = &http.Transport{
+        Proxy: http.ProxyFromEnvironment,
+        DialContext: (&net.Dialer{
+                Timeout:   30 * time.Second,
+                KeepAlive: 30 * time.Second,
+                DualStack: true,
+        }).DialContext,
+        MaxIdleConns:          100,
+        IdleConnTimeout:       90 * time.Second,
+        TLSHandshakeTimeout:   10 * time.Second,
+        ExpectContinueTimeout: 1 * time.Second,
+    }
+    return dt
+}
+
 func initTLS(cacert, cert, key string) {
     log.Println("Initializing TLS")
     roots := x509.NewCertPool()
@@ -66,21 +82,24 @@ func initTLS(cacert, cert, key string) {
         RootCAs: roots,
         Certificates: []tls.Certificate { tlsCert },
         InsecureSkipVerify: true,
+        ServerName: "Spritz",
     }
     tlsServerConfig = &tls.Config {
         ClientCAs: roots,
+        ServerName: "Spritz",
+//        ClientAuth: tls.RequireAnyClientCert,
         //RootCAs: roots,
     }
     transport = &http.Transport{
         MaxIdleConns:       10,
         IdleConnTimeout:    30 * time.Second,
-        DisableCompression: true,
         TLSClientConfig:    tlsClientConfig,
+        TLSNextProto: nil, //map[string]func(authority string, c *tls.Conn) http.RoundTripper { "h2": getRT },
     }
 }
 
 func callURL(url *url.URL, headers *map[string]string, size int) (*http.Response, error) {
-    log.Printf("Call %s, sending %d bytes and %s", url, size, headers)
+    log.Printf("Call %s, sending %d bytes and %v", url, size, *headers)
     payload := bytes.Repeat([]byte{'X'}, size)
     req, err := http.NewRequest("GET", url.String(), bytes.NewReader(payload))
     if err != nil || req == nil {
@@ -190,6 +209,10 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             showHeaders = true
             r = append(r, fmt.Sprintf("Got %d bytes from %s", req.ContentLength, req.RemoteAddr))
             r = append(r, fmt.Sprintf("%s %s %s", req.Method, req.RequestURI, req.Proto))
+            if req.TLS != nil {
+                r = append(r, fmt.Sprintf("TLS version 0x%x, cipher 0x%x, protocol %s, server name %s",
+                    req.TLS.Version, req.TLS.CipherSuite, req.TLS.NegotiatedProtocol, req.TLS.ServerName))
+            }
 
             r = append(r, "Headers:")
             r = append(r, fmt.Sprintf(".\tHost: %s", req.Host))
@@ -383,7 +406,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
                 r = append(r, err.Error())
                 r = append(r, "\n")
             } else {
-                r = append(r, "With data:")
+                r = append(r, "The remote part returned data:")
                 if len(data) > 2048 {
                     r = append(r, fmt.Sprintf(".\t<%d bytes>", len(data)))
                 } else {
@@ -401,7 +424,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             }
         }
         if showHeaders {
-            r = append(r, "With headers:")
+            r = append(r, "The remote part returned headers:")
             for h, v := range res.Header {
                 r = append(r, fmt.Sprintf(".\t%s: %s", h, v))
             }
