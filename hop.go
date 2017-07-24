@@ -5,6 +5,7 @@ import (
     "context"
     "crypto/tls"
     "crypto/x509"
+    "golang.org/x/net/http2"
     "errors"
     "flag"
     "fmt"
@@ -14,6 +15,7 @@ import (
     "math/rand"
     "net"
     "net/http"
+    "net/http/httputil"
     "net/url"
     "os"
     "strconv"
@@ -47,23 +49,7 @@ var transport *http.Transport
 var tlsClientConfig *tls.Config
 var tlsServerConfig *tls.Config
 
-func getRT(authority string, c *tls.Conn) http.RoundTripper {
-    var dt http.RoundTripper = &http.Transport{
-        Proxy: http.ProxyFromEnvironment,
-        DialContext: (&net.Dialer{
-                Timeout:   30 * time.Second,
-                KeepAlive: 30 * time.Second,
-                DualStack: true,
-        }).DialContext,
-        MaxIdleConns:          100,
-        IdleConnTimeout:       90 * time.Second,
-        TLSHandshakeTimeout:   10 * time.Second,
-        ExpectContinueTimeout: 1 * time.Second,
-    }
-    return dt
-}
-
-func initTLS(cacert, cert, key string) {
+func initTLS(cacert string, h2 bool) {
     log.Println("Initializing TLS")
     roots := x509.NewCertPool()
     data, err := ioutil.ReadFile(cacert)
@@ -74,7 +60,7 @@ func initTLS(cacert, cert, key string) {
     if !ok {
         log.Panicln("failed to parse root certificate")
     }
-    tlsCert, err := tls.LoadX509KeyPair(cert, key)
+    tlsCert, err := tls.LoadX509KeyPair(certificate, key)
     if err != nil {
         panic(fmt.Sprintf("failed to load client certificate or key: %s", err))
     }
@@ -82,29 +68,31 @@ func initTLS(cacert, cert, key string) {
         RootCAs: roots,
         Certificates: []tls.Certificate { tlsCert },
         InsecureSkipVerify: true,
-        ServerName: "Spritz",
     }
     tlsServerConfig = &tls.Config {
         ClientCAs: roots,
-        ServerName: "Spritz",
-//        ClientAuth: tls.RequireAnyClientCert,
-        //RootCAs: roots,
     }
     transport = &http.Transport{
         MaxIdleConns:       10,
         IdleConnTimeout:    30 * time.Second,
         TLSClientConfig:    tlsClientConfig,
-        TLSNextProto: nil, //map[string]func(authority string, c *tls.Conn) http.RoundTripper { "h2": getRT },
+    }
+    if h2 {
+        if err = http2.ConfigureTransport(transport); err != nil {
+            log.Fatalf("Cannot configure http2 transport: %s", err)
+        }
     }
 }
 
 func callURL(url *url.URL, headers *map[string]string, size int) (*http.Response, error) {
     log.Printf("Call %s, sending %d bytes and %v", url, size, *headers)
     payload := bytes.Repeat([]byte{'X'}, size)
+
     req, err := http.NewRequest("GET", url.String(), bytes.NewReader(payload))
     if err != nil || req == nil {
         return nil, err
     }
+
     for h, v := range *headers {
         req.Header.Set(h, v)
     }
@@ -112,15 +100,28 @@ func callURL(url *url.URL, headers *map[string]string, size int) (*http.Response
     if url.Scheme == "http" {
         client = &http.Client{}
     } else if url.Scheme == "https" {
+        if transport == nil {
+            return nil, errors.New("TLS is not initialized")
+        }
         client = &http.Client{ Transport: transport }
     } else {
         return nil, errors.New(fmt.Sprintf("Unknown schema %s", url.Scheme))
     }
+    dump, err := httputil.DumpRequest(req, false)
+    log.Println(string(dump))
     return client.Do(req)
 }
 
 func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-    log.Printf("Received %s", req.URL)
+
+    if verbose {
+        dump, err := httputil.DumpRequest(req, false)
+        if err == nil {
+            log.Println(string(dump))
+        } else {
+            log.Println(err)
+        }
+    }
 
     var result [1]string
 
@@ -209,16 +210,19 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             showHeaders = true
             r = append(r, fmt.Sprintf("Got %d bytes from %s", req.ContentLength, req.RemoteAddr))
             r = append(r, fmt.Sprintf("%s %s %s", req.Method, req.RequestURI, req.Proto))
+            dump, err := httputil.DumpRequest(req, false)
+            if err == nil {
+                for _, line := range strings.Split(string(dump), "\n") {
+                    r = append(r, fmt.Sprintf(".\t%s", line))
+                }
+            } else {
+                r = append(r, fmt.Sprintf("Error: %s", err))
+            }
             if req.TLS != nil {
                 r = append(r, fmt.Sprintf("TLS version 0x%x, cipher 0x%x, protocol %s, server name %s",
                     req.TLS.Version, req.TLS.CipherSuite, req.TLS.NegotiatedProtocol, req.TLS.ServerName))
             }
 
-            r = append(r, "Headers:")
-            r = append(r, fmt.Sprintf(".\tHost: %s", req.Host))
-            for h, v := range req.Header {
-                r = append(r, fmt.Sprintf(".\t%s: %s", h, v))
-            }
         case "-header":
             if len(cmd) != 2 {
                 r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
@@ -394,25 +398,29 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             r = append(r, fmt.Sprintf("Couldn't call %s by some reason\n", u))
             break
         }
+
+        dump, err := httputil.DumpResponse(res, false)
+        for _, line := range strings.Split(string(dump), "\n") {
+            r = append(r, fmt.Sprintf(".\t%s", line))
+        }
         r = append(r, fmt.Sprintf("Called %s with status %s", u, res.Status))
         if code == 0 {
             code = res.StatusCode
         }
-        if res.Body != nil {
-            var data []byte
-            data, err = ioutil.ReadAll(res.Body)
-            res.Body.Close()
-            if err != nil {
-                r = append(r, err.Error())
-                r = append(r, "\n")
+
+        var data []byte
+        data, err = ioutil.ReadAll(res.Body)
+        defer res.Body.Close()
+        if err != nil {
+            r = append(r, err.Error())
+            r = append(r, "\n")
+        } else {
+            r = append(r, "The remote part returned data:")
+            if len(data) > 2048 {
+                r = append(r, fmt.Sprintf(".\t<%d bytes>", len(data)))
             } else {
-                r = append(r, "The remote part returned data:")
-                if len(data) > 2048 {
-                    r = append(r, fmt.Sprintf(".\t<%d bytes>", len(data)))
-                } else {
-                    for _, line := range strings.Split(string(data), "\n") {
-                        r = append(r, fmt.Sprintf(".\t%s", line))
-                    }
+                for _, line := range strings.Split(string(data), "\n") {
+                    r = append(r, fmt.Sprintf(".\t%s", line))
                 }
             }
         }
@@ -450,9 +458,15 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 var port_http, port_https string
-var cacert, certificate, key string
+var certificate, key string
 var verbose = false
 var useTLS = false
+var localhost string
+
+type nullWriter struct {}
+func (nw nullWriter) Write(p []byte) (n int, err error) {
+    return 0, nil
+}
 
 func init() {
     rand.Seed(13)
@@ -464,29 +478,35 @@ func init() {
     if len(port_https) == 0 {
         port_https = "8443"
     }
+    var cacert string
+    var h2 = false
     flag.BoolVar(&verbose, "verbose", false, "verbose output")
     flag.StringVar(&port_http, "port_http", port_http, "port HTTP")
     flag.StringVar(&port_https, "port_https", port_https, "port HTTPS")
     flag.StringVar(&cacert, "cacert", "", "CA certificate")
-    flag.StringVar(&certificate, "cert", "", "client certificate")
-    flag.StringVar(&key, "key", "", "client key")
+    flag.StringVar(&certificate, "cert", "", "certificate")
+    flag.StringVar(&key, "key", "", "key")
+    flag.StringVar(&localhost, "interface", "localhost", "the interface to listen on")
+    flag.BoolVar(&h2, "h2", false, "use HTTP/2")
     flag.Parse()
 
     if verbose {
         log.SetOutput(os.Stdout)
+    } else {
+        log.SetOutput(nullWriter{})
     }
 
     useTLS = len(cacert) != 0 && len(certificate) !=0 && len(key) != 0
 
     if useTLS {
-        initTLS(cacert, certificate, key)
+        initTLS(cacert, h2)
     }
 }
 
 func main() {
 
     s := &http.Server {
-        Addr: net.JoinHostPort("", port_http),
+        Addr: net.JoinHostPort(localhost, port_http),
         Handler: hopHandler {},
         ReadTimeout: 10 * time.Second,
         WriteTimeout: 10 * time.Second,
@@ -498,7 +518,7 @@ func main() {
 
     if useTLS {
         stls = &http.Server {
-            Addr: net.JoinHostPort("", port_https),
+            Addr: net.JoinHostPort(localhost, port_https),
             Handler: hopHandler {},
             ReadTimeout: 10 * time.Second,
             WriteTimeout: 10 * time.Second,
@@ -509,14 +529,14 @@ func main() {
     }
 
     go func() {
-        fmt.Println("Serving on", port_http)
+        fmt.Println("Serving on", localhost, port_http)
         fmt.Println(s.ListenAndServe())
         quit<-3
     }()
 
     if stls != nil {
         go func() {
-            fmt.Println("Serving on", port_https)
+            fmt.Println("Serving on", localhost, port_https)
             fmt.Println(stls.ListenAndServeTLS(certificate, key))
             quit<-4
         }()
