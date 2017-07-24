@@ -209,8 +209,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
         case "-info":
             showHeaders = true
             r = append(r, fmt.Sprintf("Got %d bytes from %s", req.ContentLength, req.RemoteAddr))
-            r = append(r, fmt.Sprintf("%s %s %s", req.Method, req.RequestURI, req.Proto))
-            dump, err := httputil.DumpRequest(req, false)
+            dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
             if err == nil {
                 for _, line := range strings.Split(string(dump), "\n") {
                     r = append(r, fmt.Sprintf(".\t%s", line))
@@ -399,42 +398,30 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             break
         }
 
-        dump, err := httputil.DumpResponse(res, false)
-        for _, line := range strings.Split(string(dump), "\n") {
-            r = append(r, fmt.Sprintf(".\t%s", line))
+        r = append(r, fmt.Sprintf("Called %s: %s", u, res.Status))
+        if showHeaders {
+            var dump []byte
+            dump, err = httputil.DumpResponse(res, res.ContentLength < 1024)
+            if err == nil {
+                for _, line := range strings.Split(string(dump), "\n") {
+                    r = append(r, fmt.Sprintf(".\t%s", line))
+                }
+                if res.ContentLength >= 1024 {
+                    r = append(r, fmt.Sprintf(".\t<%d bytes>", res.ContentLength))
+                }
+            } else {
+                r = append(r, err.Error())
+            }
         }
-        r = append(r, fmt.Sprintf("Called %s with status %s", u, res.Status))
         if code == 0 {
             code = res.StatusCode
         }
 
-        var data []byte
-        data, err = ioutil.ReadAll(res.Body)
-        defer res.Body.Close()
-        if err != nil {
-            r = append(r, err.Error())
-            r = append(r, "\n")
-        } else {
-            r = append(r, "The remote part returned data:")
-            if len(data) > 2048 {
-                r = append(r, fmt.Sprintf(".\t<%d bytes>", len(data)))
-            } else {
-                for _, line := range strings.Split(string(data), "\n") {
-                    r = append(r, fmt.Sprintf(".\t%s", line))
-                }
-            }
-        }
         for _, h := range fheaders {
             v := res.Header.Get(h)
             r = append(r, fmt.Sprintf("Back forwarding header %s: %s", h, v))
             if len(v) > 0 {
                 rheaders[h] = v
-            }
-        }
-        if showHeaders {
-            r = append(r, "The remote part returned headers:")
-            for h, v := range res.Header {
-                r = append(r, fmt.Sprintf(".\t%s: %s", h, v))
             }
         }
         if code == 0 && err != nil {
