@@ -49,7 +49,7 @@ var transport *http.Transport
 var tlsClientConfig *tls.Config
 var tlsServerConfig *tls.Config
 
-func initTLS(cacert string, h2 bool) {
+func initTLS(cacert string) {
     log.Println("Initializing TLS")
     roots := x509.NewCertPool()
     data, err := ioutil.ReadFile(cacert)
@@ -73,18 +73,20 @@ func initTLS(cacert string, h2 bool) {
         ClientCAs: roots,
     }
     transport = &http.Transport{
+        Proxy:              http.ProxyFromEnvironment,
         MaxIdleConns:       10,
         IdleConnTimeout:    30 * time.Second,
         TLSClientConfig:    tlsClientConfig,
     }
-    if h2 {
-        if err = http2.ConfigureTransport(transport); err != nil {
-            log.Fatalf("Cannot configure http2 transport: %s", err)
-        }
+    if err = http2.ConfigureTransport(transport); err != nil {
+        log.Fatalf("Cannot configure http2 transport: %s", err)
     }
 }
 
-func callURL(url *url.URL, headers *map[string]string, size int) (*http.Response, error) {
+var http_client *http.Client
+var https_client *http.Client
+
+func buildRequest(url *url.URL, headers *map[string]string, size int) (*http.Request, error) {
     log.Printf("Call %s, sending %d bytes and %v", url, size, *headers)
     payload := bytes.Repeat([]byte{'X'}, size)
 
@@ -94,28 +96,53 @@ func callURL(url *url.URL, headers *map[string]string, size int) (*http.Response
     }
 
     for h, v := range *headers {
-        req.Header.Set(h, v)
+        if strings.ToLower(h) == "host" {
+            req.Host = v
+        } else {
+            req.Header.Set(h, v)
+        }
     }
+    return req, err
+}
+
+func callURL(req *http.Request) (*http.Response, error) {
     var client *http.Client
-    if url.Scheme == "http" {
-        client = &http.Client{}
-    } else if url.Scheme == "https" {
+    if req.URL.Scheme == "http" {
+        if http_client == nil {
+            http_client = &http.Client{}
+        }
+        client = http_client
+        log.Println("Using HTTP client")
+    } else if req.URL.Scheme == "https" {
         if transport == nil {
             return nil, errors.New("TLS is not initialized")
         }
-        client = &http.Client{ Transport: transport }
+        if https_client == nil {
+            https_client = &http.Client{ Transport: transport }
+        }
+        client = https_client
+        log.Println("Using HTTPS client")
     } else {
-        return nil, errors.New(fmt.Sprintf("Unknown schema %s", url.Scheme))
+        return nil, errors.New(fmt.Sprintf("Unknown schema %s", req.URL.Scheme))
     }
-    dump, err := httputil.DumpRequest(req, false)
-    log.Println(string(dump))
+    if proxy_url, _ := http.ProxyFromEnvironment(req); proxy_url != nil {
+        log.Printf("Using proxy: %s", proxy_url)
+    }
+    if verbose {
+        dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
+        if err == nil {
+            log.Println(string(dump))
+        } else {
+            log.Println(err)
+        }
+    }
     return client.Do(req)
 }
 
 func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
     if verbose {
-        dump, err := httputil.DumpRequest(req, false)
+        dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
         if err == nil {
             log.Println(string(dump))
         } else {
@@ -145,6 +172,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
     var headers = map[string]string {
         "Content-type": "text/plain",
+        "Accept-Encoding": "text/plain",
     }
     var rheaders = map[string]string {
         "Content-type": "text/plain",
@@ -389,7 +417,20 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             u.Scheme = "http"
         }
         var res *http.Response
-        res, err = callURL(u, &headers, size)
+        req, err = buildRequest(u, &headers, size)
+        if err != nil {
+            r = append(r, fmt.Sprintf("Couldn't make %s: %s\n", u, err.Error()))
+            break
+        } else if req == nil {
+            r = append(r, fmt.Sprintf("Couldn't make %s by some reason\n", u))
+            break
+        }
+        if showHeaders {
+            if proxy_url, _ := http.ProxyFromEnvironment(req); proxy_url != nil {
+                r = append(r, fmt.Sprintf("Using proxy: %s", proxy_url))
+            }
+        }
+        res, err = callURL(req)
         if err != nil {
             r = append(r, fmt.Sprintf("Couldn't call %s: %s\n", u, err.Error()))
             break
@@ -466,15 +507,14 @@ func init() {
         port_https = "8443"
     }
     var cacert string
-    var h2 = false
     flag.BoolVar(&verbose, "verbose", false, "verbose output")
     flag.StringVar(&port_http, "port_http", port_http, "port HTTP")
     flag.StringVar(&port_https, "port_https", port_https, "port HTTPS")
     flag.StringVar(&cacert, "cacert", "", "CA certificate")
     flag.StringVar(&certificate, "cert", "", "certificate")
     flag.StringVar(&key, "key", "", "key")
+    flag.StringVar(&key, "k", "", "k")
     flag.StringVar(&localhost, "interface", "localhost", "the interface to listen on")
-    flag.BoolVar(&h2, "h2", false, "use HTTP/2")
     flag.Parse()
 
     if verbose {
@@ -486,7 +526,7 @@ func init() {
     useTLS = len(cacert) != 0 && len(certificate) !=0 && len(key) != 0
 
     if useTLS {
-        initTLS(cacert, h2)
+        initTLS(cacert)
     }
 }
 
