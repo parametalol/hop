@@ -7,7 +7,7 @@ touch certificates/index.txt
 SERVICE_NAME=$1
 
 openssl req -x509 -nodes -newkey rsa:2048 -config openssl.cnf \
-  -subj '/C=US/CN=$SERVICE_NAME CA' -keyout certificates/private/cakey.pem \
+  -subj "/C=US/CN=$SERVICE_NAME CA" -keyout certificates/private/cakey.pem \
   -out certificates/cacertificate.pem
 
 echo ... generate a certificate signing request with the common name "$SERVICE_NAME"
