@@ -49,6 +49,17 @@ var transport *http.Transport
 var tlsClientConfig *tls.Config
 var tlsServerConfig *tls.Config
 
+var http_proxy_url *url.URL
+var https_proxy_url *url.URL
+
+func proxy(req *http.Request) (*url.URL, error) {
+    switch req.URL.Scheme {
+    case "http": return http_proxy_url, nil
+    case "https": return https_proxy_url, nil
+    }
+    return http.ProxyFromEnvironment(req)
+}
+
 func initTLS(cacert string) {
     log.Println("Initializing TLS")
     roots := x509.NewCertPool()
@@ -68,15 +79,26 @@ func initTLS(cacert string) {
         RootCAs: roots,
         Certificates: []tls.Certificate { tlsCert },
         InsecureSkipVerify: true,
+        NextProtos: []string { "h2" },
     }
     tlsServerConfig = &tls.Config {
         ClientCAs: roots,
+        NextProtos: []string { "h2" },
     }
-    transport = &http.Transport{
-        Proxy:              http.ProxyFromEnvironment,
-        MaxIdleConns:       10,
-        IdleConnTimeout:    30 * time.Second,
-        TLSClientConfig:    tlsClientConfig,
+    if proxy_tunneling {
+        transport = &http.Transport{
+            Proxy:              proxy,
+            MaxIdleConns:       10,
+            IdleConnTimeout:    30 * time.Second,
+            TLSClientConfig:    tlsClientConfig,
+        }
+    } else {
+        transport = &http.Transport{
+            Proxy:              nil,
+            MaxIdleConns:       10,
+            IdleConnTimeout:    30 * time.Second,
+            TLSClientConfig:    tlsClientConfig,
+        }
     }
     if err = http2.ConfigureTransport(transport); err != nil {
         log.Fatalf("Cannot configure http2 transport: %s", err)
@@ -107,6 +129,7 @@ func buildRequest(url *url.URL, headers *map[string]string, size int) (*http.Req
 
 func callURL(req *http.Request) (*http.Response, error) {
     var client *http.Client
+    proxy_url, err := proxy(req)
     if req.URL.Scheme == "http" {
         if http_client == nil {
             http_client = &http.Client{}
@@ -125,8 +148,11 @@ func callURL(req *http.Request) (*http.Response, error) {
     } else {
         return nil, errors.New(fmt.Sprintf("Unknown schema %s", req.URL.Scheme))
     }
-    if proxy_url, _ := http.ProxyFromEnvironment(req); proxy_url != nil {
+    if proxy_url != nil {
         log.Printf("Using proxy: %s", proxy_url)
+    }
+    if err != nil {
+        log.Printf("Error preparing a request: %s", err)
     }
     if verbose {
         dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
@@ -487,6 +513,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 var port_http, port_https string
 var certificate, key string
+var proxy_tunneling = false
 var verbose = false
 var useTLS = false
 var localhost string
@@ -506,10 +533,15 @@ func init() {
     if len(port_https) == 0 {
         port_https = "8443"
     }
+    http_proxy := os.Getenv("http_proxy");
+    https_proxy := os.Getenv("https_proxy");
     var cacert string
     flag.BoolVar(&verbose, "verbose", false, "verbose output")
     flag.StringVar(&port_http, "port_http", port_http, "port HTTP")
     flag.StringVar(&port_https, "port_https", port_https, "port HTTPS")
+    flag.StringVar(&http_proxy, "http_proxy", http_proxy, "proxy HTTP")
+    flag.StringVar(&https_proxy, "https_proxy", https_proxy, "proxy HTTPS")
+    flag.BoolVar(&proxy_tunneling, "proxy_tunneling", false, "use proxy tunneling")
     flag.StringVar(&cacert, "cacert", "", "CA certificate")
     flag.StringVar(&certificate, "cert", "", "certificate")
     flag.StringVar(&key, "key", "", "key")
@@ -521,6 +553,17 @@ func init() {
         log.SetOutput(os.Stdout)
     } else {
         log.SetOutput(nullWriter{})
+    }
+
+    var err error
+    if len(https_proxy) != 0 {
+        https_proxy_url, err = url.Parse(https_proxy)
+    }
+    if len(http_proxy) != 0 {
+        http_proxy_url, err = url.Parse(http_proxy)
+    }
+    if err != nil {
+        log.Panicf("failed to parse parameters: %s\n", err)
     }
 
     useTLS = len(cacert) != 0 && len(certificate) !=0 && len(key) != 0
