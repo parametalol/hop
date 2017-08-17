@@ -79,11 +79,9 @@ func initTLS(cacert string) {
         RootCAs: roots,
         Certificates: []tls.Certificate { tlsCert },
         InsecureSkipVerify: true,
-        NextProtos: []string { "h2" },
     }
     tlsServerConfig = &tls.Config {
         ClientCAs: roots,
-        NextProtos: []string { "h2" },
     }
     if proxy_tunneling {
         transport = &http.Transport{
@@ -546,7 +544,7 @@ func init() {
     flag.StringVar(&certificate, "cert", "", "certificate")
     flag.StringVar(&key, "key", "", "key")
     flag.StringVar(&key, "k", "", "k")
-    flag.StringVar(&localhost, "interface", "localhost", "the interface to listen on")
+    flag.StringVar(&localhost, "interface", "0.0.0.0", "the interface to listen on")
     flag.Parse()
 
     if verbose {
