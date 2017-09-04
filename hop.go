@@ -462,6 +462,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             r = append(r, fmt.Sprintf("Couldn't call %s by some reason\n", u))
             break
         }
+        defer res.Body.Close()
 
         r = append(r, fmt.Sprintf("Called %s: %s", u, res.Status))
         if showHeaders {
