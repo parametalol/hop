@@ -127,7 +127,7 @@ func buildRequest(url *url.URL, headers *map[string]string, size int) (*http.Req
 
 func callURL(req *http.Request) (*http.Response, error) {
     var client *http.Client
-    proxy_url, err := proxy(req)
+    var err error
     if req.URL.Scheme == "http" {
         if http_client == nil {
             http_client = &http.Client{}
@@ -145,9 +145,6 @@ func callURL(req *http.Request) (*http.Response, error) {
         log.Println("Using HTTPS client")
     } else {
         return nil, errors.New(fmt.Sprintf("Unknown schema %s", req.URL.Scheme))
-    }
-    if proxy_url != nil {
-        log.Printf("Using proxy: %s", proxy_url)
     }
     if err != nil {
         log.Printf("Error preparing a request: %s", err)
@@ -400,7 +397,7 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
                 r = append(r, fmt.Sprintf("Cannot make a random of %s", cmd[1]))
                 continue
             }
-            skip = rand.Intn(100) < p
+            skip = p <= rand.Intn(100)
             if not {
                 skip = !skip
                 not = false
@@ -449,8 +446,15 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             r = append(r, fmt.Sprintf("Couldn't make %s by some reason\n", u))
             break
         }
-        if showHeaders {
-            if proxy_url, _ := http.ProxyFromEnvironment(req); proxy_url != nil {
+        if proxy_url, _ := proxy(req); proxy_url != nil {
+            if verbose {
+                log.Printf("Using proxy: %s", proxy_url)
+            }
+            if !proxy_tunneling {
+                req.URL.Host = proxy_url.Host
+                r = append(r, fmt.Sprintf("Overriding url: %s", req.URL))
+            }
+            if showHeaders {
                 r = append(r, fmt.Sprintf("Using proxy: %s", proxy_url))
             }
         }
@@ -544,7 +548,6 @@ func init() {
     flag.StringVar(&cacert, "cacert", "", "CA certificate")
     flag.StringVar(&certificate, "cert", "", "certificate")
     flag.StringVar(&key, "key", "", "key")
-    flag.StringVar(&key, "k", "", "k")
     flag.StringVar(&localhost, "interface", "0.0.0.0", "the interface to listen on")
     flag.Parse()
 
