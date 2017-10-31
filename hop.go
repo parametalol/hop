@@ -21,6 +21,9 @@ import (
     "strconv"
     "strings"
     "time"
+
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type hopHandler struct {}
@@ -161,7 +164,11 @@ func callURL(req *http.Request) (*http.Response, error) {
 }
 
 func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-
+    elapsed := func(start time.Time) {
+        e := time.Now().Sub(start) / time.Millisecond
+        hopDurations.WithLabelValues("uniform").Observe(float64(e))
+    }
+    defer elapsed(time.Now())
     if verbose {
         dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
         if err == nil {
@@ -514,12 +521,28 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
     }
 }
 
-var port_http, port_https string
-var certificate, key string
-var proxy_tunneling = false
-var verbose = false
-var useTLS = false
-var localhost string
+
+var (
+    port_http, port_https string
+    port_metrics = "8080"
+    certificate, key string
+    proxy_tunneling = false
+    verbose = false
+    useTLS = false
+    localhost string
+
+    // Create a summary to track fictional interservice HOP latencies for three
+    // distinct services with different latency distributions. These services are
+    // differentiated via a "service" label.
+    hopDurations = prometheus.NewSummaryVec(
+        prometheus.SummaryOpts{
+            Name:       "hop_durations_seconds",
+            Help:       "HOP latency distributions.",
+            Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+        },
+        []string{"service"},
+    )
+)
 
 type nullWriter struct {}
 func (nw nullWriter) Write(p []byte) (n int, err error) {
@@ -542,6 +565,7 @@ func init() {
     flag.BoolVar(&verbose, "verbose", false, "verbose output")
     flag.StringVar(&port_http, "port_http", port_http, "port HTTP")
     flag.StringVar(&port_https, "port_https", port_https, "port HTTPS")
+    flag.StringVar(&port_metrics, "port_metrics", port_metrics, "port Prometheus metrics")
     flag.StringVar(&http_proxy, "http_proxy", http_proxy, "proxy HTTP")
     flag.StringVar(&https_proxy, "https_proxy", https_proxy, "proxy HTTPS")
     flag.BoolVar(&proxy_tunneling, "proxy_tunneling", false, "use proxy tunneling")
@@ -549,6 +573,8 @@ func init() {
     flag.StringVar(&certificate, "cert", "", "certificate")
     flag.StringVar(&key, "key", "", "key")
     flag.StringVar(&localhost, "interface", "0.0.0.0", "the interface to listen on")
+
+
     flag.Parse()
 
     if verbose {
@@ -573,6 +599,8 @@ func init() {
     if useTLS {
         initTLS(cacert)
     }
+    // Register the summary and the histogram with Prometheus's default registry.
+    prometheus.MustRegister(hopDurations)
 }
 
 func main() {
@@ -600,19 +628,35 @@ func main() {
         }
     }
 
+    metrics := &http.Server {
+        Addr: net.JoinHostPort(localhost, port_metrics),
+        Handler: promhttp.Handler(),
+        ReadTimeout: 10 * time.Second,
+        WriteTimeout: 10 * time.Second,
+        MaxHeaderBytes: 1 << 20,
+        ErrorLog: log.New(os.Stdout, "http: ", 0),
+    }
+
     go func() {
-        fmt.Println("Serving on", localhost, port_http)
+        fmt.Println("Serving HTTP on", localhost, port_http)
         fmt.Println(s.ListenAndServe())
         quit<-3
     }()
 
     if stls != nil {
         go func() {
-            fmt.Println("Serving on", localhost, port_https)
+            fmt.Println("Serving HTTPS on", localhost, port_https)
             fmt.Println(stls.ListenAndServeTLS(certificate, key))
             quit<-4
         }()
     }
+
+    go func() {
+        fmt.Println("Serving /metrics on", localhost, port_metrics)
+        // metrics.Handle("/metrics", promhttp.Handler())
+        fmt.Println(metrics.ListenAndServe())
+        quit<-5
+    }()
 
     switch <-quit {
     case 1:
