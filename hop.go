@@ -44,6 +44,7 @@ var help = map[string]string {
     "-rsize:B": "add B bytes of payload to the response",
     "-size:B": "add B bytes of payload to the following query",
     "-wait:T": "wait for T ms before response",
+    "-env:V": "return the value of an environment variable",
 }
 
 var quit = make(chan int)
@@ -345,6 +346,12 @@ func (handler hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
             r = append(r, fmt.Sprintf("Appending %d bytes", b))
             r = append(r, strings.Repeat("X", b))
             r = append(r, "\n")
+        case "-env":
+            if len(cmd) != 2 {
+                r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
+                continue
+            }
+            r = append(r, fmt.Sprintf("%s=%s", cmd[1], os.Getenv(cmd[1])))
         case "-size":
             if len(cmd) != 2 {
                 r = append(r, fmt.Sprintf("Missing parameter for %s", cmd[0]))
@@ -554,10 +561,10 @@ func init() {
     port_http = os.Getenv("PORT");
     port_https = os.Getenv("PORT_HTTPS");
     if len(port_http) == 0 {
-        port_http = "8000"
+        port_http = "80"
     }
     if len(port_https) == 0 {
-        port_https = "8443"
+        port_https = "443"
     }
     http_proxy := os.Getenv("http_proxy");
     https_proxy := os.Getenv("https_proxy");
@@ -566,14 +573,13 @@ func init() {
     flag.StringVar(&port_http, "port_http", port_http, "port HTTP")
     flag.StringVar(&port_https, "port_https", port_https, "port HTTPS")
     flag.StringVar(&port_metrics, "port_metrics", port_metrics, "port Prometheus metrics")
-    flag.StringVar(&http_proxy, "http_proxy", http_proxy, "proxy HTTP")
-    flag.StringVar(&https_proxy, "https_proxy", https_proxy, "proxy HTTPS")
-    flag.BoolVar(&proxy_tunneling, "proxy_tunneling", false, "use proxy tunneling")
+    flag.StringVar(&http_proxy, "http_proxy", http_proxy, "HTTP proxy")
+    flag.StringVar(&https_proxy, "https_proxy", https_proxy, "HTTPS proxy")
+    flag.BoolVar(&proxy_tunneling, "proxy_tunneling", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
     flag.StringVar(&cacert, "cacert", "", "CA certificate")
     flag.StringVar(&certificate, "cert", "", "certificate")
     flag.StringVar(&key, "key", "", "key")
     flag.StringVar(&localhost, "interface", "0.0.0.0", "the interface to listen on")
-
 
     flag.Parse()
 
