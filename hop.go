@@ -66,18 +66,23 @@ func proxy(req *http.Request) (*url.URL, error) {
 
 func initTLS(cacert string) {
     log.Println("Initializing TLS")
-    roots := x509.NewCertPool()
-    data, err := ioutil.ReadFile(cacert)
+    roots, err := x509.SystemCertPool()
     if err != nil {
-        log.Fatalf("failed to load root certificate: %s", err)
+        log.Fatalf("failed to obtain the system certificates pool: %s", err)
     }
-    ok := roots.AppendCertsFromPEM(data)
-    if !ok {
-        log.Panicln("failed to parse root certificate")
+    if len(cacert) != 0 {
+        data, err := ioutil.ReadFile(cacert)
+        if err != nil {
+            log.Fatalf("failed to load root certificate from %s: %s", cacert, err)
+        }
+        ok := roots.AppendCertsFromPEM(data)
+        if !ok {
+            log.Fatalf("failed to parse root certificate from %s", cacert)
+        }
     }
     tlsCert, err := tls.LoadX509KeyPair(certificate, key)
     if err != nil {
-        panic(fmt.Sprintf("failed to load client certificate or key: %s", err))
+        log.Panicf("failed to load client certificate or key: %s", err)
     }
     tlsClientConfig = &tls.Config {
         RootCAs: roots,
@@ -600,7 +605,7 @@ func init() {
         log.Panicf("failed to parse parameters: %s\n", err)
     }
 
-    useTLS = len(cacert) != 0 && len(certificate) !=0 && len(key) != 0
+    useTLS = len(certificate) !=0 && len(key) != 0
 
     if useTLS {
         initTLS(cacert)
