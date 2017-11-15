@@ -4,24 +4,25 @@ A stupid web service which can do stupid things told by the url.
 
 # Usage
 
-    * $ hop --help
+* `$ hop --help`
 
-    * $ PORT=8000 hop
-      Serving on 8000
+* `$ PORT=8000 hop`
+`Serving on 8000`
 
-    * $ curl box1:8000/-wait:1000/box2:8000/-rheader:a=b
-
-      | I am box, will do /-wait:1000/box2:8000/-rheader:a=b
-      | Waited for 1000 ms
-      | Called http://box2:8000/-rheader:a=b with status 200 OK
-      | With data:
-      | . | I am box2, will do /-rheader:a=b
-      | . | Will return header a: b
-      | . 
+* `$ curl box1:8000/-wait:1000/box2:8000/-rheader:a=b`
+```
+| I am box1, will do /-wait:1000/box2:8000/-rheader:a=b
+| Waited for 1000 ms
+| Called http://box2:8000/-rheader:a=b with status 200 OK
+| With data:
+| . | I am box2, will do /-rheader:a=b
+| . | Will return header a: b
+| . 
+```
 
 # Supported commands
 
-    * $ curl hop/-help
+* `$ curl hop/-help`
 
 * -info         - return some info about the request
 * -rheader:H=V  - add header H: V to the reponse
