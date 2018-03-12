@@ -1,106 +1,80 @@
 ---
 apiVersion: v1
-kind: Template
+kind: Deployment
 metadata:
-  name: hop
+  name: "hop-deployment"
+  labels:
+    app: "hop"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "hop"
+  triggers:
+  - type: ConfigChange
+  strategy:
+    type: Rolling
+  template:
+    metadata:
+      labels:
+        app: hop
+    spec:
+      volumes:
+      - name: hop-tls
+        secret:
+          secretName: hop-tls
+      containers:
+      - image: smartptr/hop:latest
+        name: "hop"
+        command:
+        - /main
+        args:
+        - "--cacert"
+        - /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        - "--cert"
+        - /etc/tls/private/tls.crt
+        - "--key"
+        - /etc/tls/private/tls.key
+        - "--interface"
+        - 0.0.0.0
+        - "--port_http"
+        - "8000"
+        - "--port_https"
+        - "8443"
+        - "--port_metrics"
+        - "8080"
+        volumeMounts:
+        - name: "hop-tls"
+          mountPath: "/etc/tls/private"
+          readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
   annotations:
-    "openshift.io/display-name": Hop
-    description: |
-      A simple test web service which can execute a few commands passed in the URL
-    iconClass: icon-cogs
-
-parameters:
-- name: NAME
-  value: hop
-  description: The name of the deployment config and the service. Defaults to 'hop'.
-
-- name: PORT_HTTP
-  value: "80"
-  description: The service HTTP port. Defaults to '80'.
-
-- name: PORT_HTTPS
-  value: "443"
-  description: The service HTTPS port. Defaults to '443'.
-
-- name: PORT_PROMETHEUS
-  value: "8080"
-  description: The prometheus endpoint HTTP port. Defaults to '8080'.
-
-objects:
-- apiVersion: v1
-  kind: DeploymentConfig
-  metadata:
-    name: "${NAME}"
-  spec:
-    replicas: 1
-    selector:
-      name: "${NAME}"
-    triggers:
-    - type: ConfigChange
-    strategy:
-      type: Rolling
-    template:
-      metadata:
-        labels:
-          name: "${NAME}"
-          app: hop
-      spec:
-        volumes:
-        - name: hop-tls
-          secret:
-            secretName: hop-tls
-        containers:
-        - image: smartptr/hop:latest
-          name: "${NAME}"
-          command:
-          - /main
-          args:
-          - "--cacert"
-          - /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
-          - "--cert"
-          - /etc/tls/private/tls.crt
-          - "--key"
-          - /etc/tls/private/tls.key
-          - "--interface"
-          - 0.0.0.0
-          - "--port_http"
-          - "8000"
-          - "--port_https"
-          - "8443"
-          - "--port_metrics"
-          - "8080"
-          volumeMounts:
-          - name: "hop-tls"
-            mountPath: "/etc/tls/private"
-            readOnly: true
-- apiVersion: v1
-  kind: Service
-  metadata:
-    annotations:
-      prometheus.io/scrape: "true"
-      prometheus.io/scheme: http
-      prometheus.io/port: "${PORT_PROMETHEUS}"
-      service.alpha.openshift.io/serving-cert-secret-name: hop-tls
-    labels:
-      app: hop
-      name: "${NAME}"
-    name: "${NAME}"
-  spec:
-    ports:
-    - port: ${PORT_HTTP}
-      name: http
-      protocol: TCP
-      targetPort: 8000
-    - port: ${PORT_HTTPS}
-      name: https
-      protocol: TCP
-      targetPort: 8443
-    - port: ${PORT_PROMETHEUS}
-      name: prometheus
-      protocol: TCP
-      targetPort: 8080
-    selector:
-      name: "${NAME}"
-    sessionAffinity: None
-    type: ClusterIP
+    prometheus.io/scrape: "true"
+    prometheus.io/scheme: http
+    prometheus.io/port: "8080"
+  labels:
+    app: hop
+    name: "hop"
+  name: "hop"
+spec:
+  ports:
+  - port: 80
+    name: http
+    protocol: TCP
+    targetPort: 8000
+  - port: 443
+    name: https
+    protocol: TCP
+    targetPort: 8443
+  - port: 8080
+    name: prometheus
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    name: "hop"
+  sessionAffinity: None
+  type: ClusterIP
 
