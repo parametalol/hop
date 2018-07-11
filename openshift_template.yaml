@@ -46,9 +46,9 @@ objects:
           app: hop
       spec:
         volumes:
-        - name: hop-tls
+        - name: "${NAME}-tls"
           secret:
-            secretName: hop-tls
+            secretName: "${NAME}-tls"
         containers:
         - image: smartptr/hop:latest
           name: "${NAME}"
@@ -70,7 +70,7 @@ objects:
           - "--port_metrics"
           - "8080"
           volumeMounts:
-          - name: "hop-tls"
+          - name: "${NAME}-tls"
             mountPath: "/etc/tls/private"
             readOnly: true
 - apiVersion: v1
@@ -80,7 +80,7 @@ objects:
       prometheus.io/scrape: "true"
       prometheus.io/scheme: http
       prometheus.io/port: "${PORT_PROMETHEUS}"
-      service.alpha.openshift.io/serving-cert-secret-name: hop-tls
+      service.alpha.openshift.io/serving-cert-secret-name: "${NAME}-tls"
     labels:
       app: hop
       name: "${NAME}"
