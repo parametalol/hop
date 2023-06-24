@@ -18,23 +18,6 @@ type hopHandler struct {
 	client *hopClient
 }
 
-func initServerTransport(roots *x509.CertPool) (*tls.Config, error) {
-	log.Println("Initializing Server TLS")
-	/*
-		if len(certificate) != 0 && len(key) != 0 {
-			tlsCert, err := tls.LoadX509KeyPair(certificate, key)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load client certificate or key: %s", err)
-			}
-			roots.
-			cfg.Certificates = []tls.Certificate{tlsCert}
-		}
-	*/
-	return &tls.Config{
-		ClientCAs: roots,
-	}, nil
-}
-
 func getServer(host string, port uint16) *http.Server {
 	return &http.Server{
 		Addr:           net.JoinHostPort(host, strconv.FormatUint(uint64(port), 10)),
@@ -58,19 +41,30 @@ func (cfg *config) startHttpServer(client *hopClient, quit chan<- int) *http.Ser
 	return s
 }
 
-func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, quit chan<- int) *http.Server {
-	if cfg.certificate == "" || cfg.key == "" {
-		return nil
-	}
+func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, quit chan<- int) (*http.Server, error) {
 	stls := getServer(cfg.localhost, uint16(cfg.port_https))
 	stls.Handler = &hopHandler{cfg, client}
 
-	if pool != nil {
-		var err error
-		stls.TLSConfig, err = initServerTransport(pool)
+	var err error
+	var serverCert *tls.Certificate
+	if cfg.cacert != "" && cfg.cakey != "" {
+		serverCert, err = signWith(cfg.cacert, cfg.cakey)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("couldn't sign with provided files: %w", err)
 		}
+	} else if cfg.key == "" && cfg.certificate == "" {
+		var ca *x509.Certificate
+		serverCert, ca, err = getSelfSigned()
+		if err != nil {
+			return nil, fmt.Errorf("couldn't self-sign server certificate: %w", err)
+		}
+		if ca != nil {
+			pool.AddCert(ca)
+		}
+	}
+	stls.TLSConfig = &tls.Config{
+		ClientCAs:    pool,
+		Certificates: []tls.Certificate{*serverCert},
 	}
 
 	go func() {
@@ -79,7 +73,7 @@ func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, quit
 		quit <- 4
 	}()
 
-	return stls
+	return stls, nil
 }
 
 func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {

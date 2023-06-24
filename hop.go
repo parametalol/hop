@@ -95,6 +95,7 @@ type config struct {
 	https_proxy     string
 	proxy_tunneling bool
 	cacert          string
+	cakey           string
 	certificate     string
 	key             string
 	localhost       string
@@ -127,9 +128,10 @@ func getConfig() *config {
 	flag.StringVar(&cfg.http_proxy, "http_proxy", os.Getenv("http_proxy"), "HTTP proxy")
 	flag.StringVar(&cfg.https_proxy, "https_proxy", os.Getenv("https_proxy"), "HTTPS proxy")
 	flag.BoolVar(&cfg.proxy_tunneling, "proxy_tunneling", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
-	flag.StringVar(&cfg.cacert, "cacert", "", "CA certificate")
-	flag.StringVar(&cfg.certificate, "cert", "", "certificate")
-	flag.StringVar(&cfg.key, "key", "", "key")
+	flag.StringVar(&cfg.cacert, "cacert", "", "CA certificate PEM file")
+	flag.StringVar(&cfg.cakey, "cakey", "", "CA certificate private key PEM file")
+	flag.StringVar(&cfg.certificate, "cert", "", "server certificate PEM file")
+	flag.StringVar(&cfg.key, "key", "", "server private key PEM file")
 	flag.StringVar(&cfg.localhost, "interface", "0.0.0.0", "the interface to listen on")
 
 	flag.Parse()
@@ -153,7 +155,7 @@ func main() {
 		http_proxy_url, err = url.Parse(cfg.http_proxy)
 	}
 	if err != nil {
-		log.Panicf("failed to parse parameters: %s\n", err)
+		log.Panicf("failed to parse parameters: %s", err)
 	}
 
 	// Register the summary and the histogram with Prometheus's default registry.
@@ -170,7 +172,10 @@ func main() {
 		log.Panic(err)
 	}
 	s := cfg.startHttpServer(client, quit)
-	stls := cfg.startHttpsServer(client, p, quit)
+	stls, err := cfg.startHttpsServer(client, p, quit)
+	if err != nil {
+		log.Panicf("failed to start HTTPS server: %v", err)
+	}
 
 	metrics := &http.Server{
 		Addr:           net.JoinHostPort(cfg.localhost, strconv.FormatUint(uint64(cfg.port_metrics), 10)),
