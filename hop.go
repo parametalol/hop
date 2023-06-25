@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
-	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	flag "github.com/spf13/pflag"
 )
 
 var (
@@ -99,6 +99,7 @@ type config struct {
 	certificate     string
 	key             string
 	localhost       string
+	serviceNames    []string
 }
 
 func getConfig() *config {
@@ -120,19 +121,22 @@ func getConfig() *config {
 	}
 
 	cfg := &config{}
-	flag.BoolVar(&cfg.verbose, "verbose", false, "verbose output")
-	flag.BoolVar(&cfg.insecure, "insecure", false, "skip TLS verification")
-	flag.UintVar(&cfg.port_http, "port_http", uint(port_http), "port HTTP")
-	flag.UintVar(&cfg.port_https, "port_https", uint(port_https), "port HTTPS")
-	flag.UintVar(&cfg.port_metrics, "port_metrics", uint(port_metrics), "port Prometheus metrics")
-	flag.StringVar(&cfg.http_proxy, "http_proxy", os.Getenv("http_proxy"), "HTTP proxy")
-	flag.StringVar(&cfg.https_proxy, "https_proxy", os.Getenv("https_proxy"), "HTTPS proxy")
-	flag.BoolVar(&cfg.proxy_tunneling, "proxy_tunneling", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
-	flag.StringVar(&cfg.cacert, "cacert", "", "CA certificate PEM file")
-	flag.StringVar(&cfg.cakey, "cakey", "", "CA certificate private key PEM file")
-	flag.StringVar(&cfg.certificate, "cert", "", "server certificate PEM file")
-	flag.StringVar(&cfg.key, "key", "", "server private key PEM file")
-	flag.StringVar(&cfg.localhost, "interface", "0.0.0.0", "the interface to listen on")
+
+	flag.BoolVarP(&cfg.verbose, "verbose", "v", false, "verbose output")
+	flag.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
+	flag.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
+	flag.UintVarP(&cfg.port_metrics, "port-metrics", "", uint(port_metrics), "port Prometheus metrics")
+	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
+
+	flag.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
+	flag.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
+	flag.StringVarP(&cfg.https_proxy, "https-proxy", "", os.Getenv("https_proxy"), "HTTPS proxy")
+	flag.BoolVarP(&cfg.proxy_tunneling, "proxy-tunneling", "", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
+	flag.StringVarP(&cfg.cacert, "cacert", "", "", "CA certificate PEM file")
+	flag.StringVarP(&cfg.cakey, "cakey", "", "", "CA certificate private key PEM file")
+	flag.StringVarP(&cfg.certificate, "cert", "", "", "server certificate PEM file")
+	flag.StringVarP(&cfg.key, "key", "", "", "server private key PEM file")
+	flag.StringArrayVarP(&cfg.serviceNames, "name", "n", []string{"localhost"}, "the service DNS name(s) for the certificate")
 
 	flag.Parse()
 	return cfg

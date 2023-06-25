@@ -33,25 +33,44 @@ func getCertPool(cacert string) (*x509.CertPool, error) {
 	return roots, nil
 }
 
+func printCert(r *reqLog, cert *x509.Certificate) {
+	r.appendf("\tIssuer:       %s", cert.Issuer)
+	r.appendf("\tIs CA:        %v", cert.IsCA)
+	r.appendf("\tDNS Names:    %v", cert.DNSNames)
+	r.appendf("\tIP Addresses: %v", cert.IPAddresses)
+	r.appendf("\tURIs:         %v", cert.URIs)
+	r.append("\tValidity:")
+	r.appendf("\t\tNot Before:   %v", cert.NotBefore)
+	r.appendf("\t\tNot After:    %v", cert.NotAfter)
+	r.appendf("\tSignature Algorithm: %s", cert.SignatureAlgorithm)
+}
+
 func appendTLSInfo(r *reqLog, t *tls.ConnectionState, prefix string) {
 	if t == nil {
+		r.appendln("No TLS info.")
 		return
 	}
 	r.appendf("%s: TLS version 0x%x, cipher 0x%x, protocol %s, server name %s",
 		prefix,
-		t.Version, t.CipherSuite, t.NegotiatedProtocol, t.ServerName)
-
-	for _, chain := range t.VerifiedChains {
-		for _, x := range chain {
-			if x == nil {
-				continue
-			}
-			r.appendf("%s: Verified issuer %v, subject %v", prefix, x.Issuer, x.Subject)
-		}
+		t.Version, t.CipherSuite, t.NegotiatedProtocol, t.ServerName,
+	)
+	for _, ps := range t.PeerCertificates {
+		printCert(r, ps)
 	}
 
 	if len(t.VerifiedChains) == 0 {
 		r.appendf("%s: Empty verified chain", prefix)
+	} else {
+		r.append("Verified chain:")
+
+		for _, chain := range t.VerifiedChains {
+			for _, x := range chain {
+				if x == nil {
+					continue
+				}
+				r.appendf("\tVerified issuer %v, subject %v", x.Issuer, x.Subject)
+			}
+		}
 	}
 }
 
@@ -97,10 +116,10 @@ func pemDecode(data []byte) []byte {
 	return block.Bytes
 }
 
-func genServerCert() (*x509.Certificate, *rsa.PrivateKey, error) {
+func genServerCert(names []string) (*x509.Certificate, *rsa.PrivateKey, error) {
 	serverCert := &x509.Certificate{
 		SerialNumber: big.NewInt(2019),
-		DNSNames:     []string{"localhost"},
+		DNSNames:     names,
 		Subject:      pkix.Name{},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
 		NotBefore:    time.Now(),
@@ -125,12 +144,12 @@ func sign(serviceCert, ca *x509.Certificate, serviceCertPubKey *rsa.PublicKey, c
 	return pemEncode(certBytes, "CERTIFICATE")
 }
 
-func selfSign() (*x509.Certificate, []byte, *rsa.PrivateKey, error) {
+func selfSign(names []string) (*x509.Certificate, []byte, *rsa.PrivateKey, error) {
 	ca, _, caPrivKey, err := genCA()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	cert, pk, err := genServerCert()
+	cert, pk, err := genServerCert(names)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -141,8 +160,8 @@ func selfSign() (*x509.Certificate, []byte, *rsa.PrivateKey, error) {
 	return ca, signed, pk, err
 }
 
-func signWith(cacertFile, cakeyFile string) (*tls.Certificate, error) {
-	cert, pk, err := genServerCert()
+func signWith(names []string, cacertFile, cakeyFile string) (*tls.Certificate, error) {
+	cert, pk, err := genServerCert(names)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +201,8 @@ func signWith(cacertFile, cakeyFile string) (*tls.Certificate, error) {
 	return &serverCert, nil
 }
 
-func getSelfSigned() (*tls.Certificate, *x509.Certificate, error) {
-	ca, cert, pk, err := selfSign()
+func getSelfSigned(names []string) (*tls.Certificate, *x509.Certificate, error) {
+	ca, cert, pk, err := selfSign(names)
 	if err != nil {
 		return nil, nil, err
 	}

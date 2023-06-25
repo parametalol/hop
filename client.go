@@ -155,7 +155,7 @@ func (handler *hopHandler) hop(r *reqLog, params *reqParams) int {
 				r.appendf(".\t<%d bytes>", res.ContentLength)
 			}
 		} else {
-			r.append(err.Error())
+			r.appendln(err.Error())
 		}
 	}
 	c := res.StatusCode

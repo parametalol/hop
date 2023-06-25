@@ -26,14 +26,14 @@ func TestPop(t *testing.T) {
 }
 
 func addToR(r *reqLog, msg string) {
-	r.append(msg)
+	r.appendln(msg)
 }
 
 func TestRqLog(t *testing.T) {
 	var r reqLog
 
 	assert.Equal(t, 0, len(r))
-	r.append("abc", "xyz")
+	r.appendln("abc", "xyz")
 	assert.Equal(t, 1, len(r))
 	assert.Equal(t, "abc\nxyz", r[0])
 	addToR(&r, "def")

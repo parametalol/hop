@@ -9,8 +9,12 @@ import (
 
 type reqLog []string
 
-func (l *reqLog) append(s ...string) {
+func (l *reqLog) appendln(s ...string) {
 	*l = append(*l, strings.Join(s, "\n"))
+}
+
+func (l *reqLog) append(s ...string) {
+	*l = append(*l, s...)
 }
 
 func (l *reqLog) appendf(f string, args ...any) {

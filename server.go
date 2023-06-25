@@ -48,13 +48,13 @@ func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, quit
 	var err error
 	var serverCert *tls.Certificate
 	if cfg.cacert != "" && cfg.cakey != "" {
-		serverCert, err = signWith(cfg.cacert, cfg.cakey)
+		serverCert, err = signWith(cfg.serviceNames, cfg.cacert, cfg.cakey)
 		if err != nil {
 			return nil, fmt.Errorf("couldn't sign with provided files: %w", err)
 		}
 	} else if cfg.key == "" && cfg.certificate == "" {
 		var ca *x509.Certificate
-		serverCert, ca, err = getSelfSigned()
+		serverCert, ca, err = getSelfSigned(cfg.serviceNames)
 		if err != nil {
 			return nil, fmt.Errorf("couldn't self-sign server certificate: %w", err)
 		}

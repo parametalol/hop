@@ -71,7 +71,7 @@ func step(ctx *cmdContext, r *reqLog, req *http.Request, rp *reqParams, command,
 		for k, v := range help {
 			r.appendf("%-13s - %s", strings.Join([]string{k, v[0]}, ":"), v[1])
 		}
-		r.append("Examples:",
+		r.appendln("Examples:",
 			"curl -H \"a: b\" hop1/-info",
 			"\tthis will call hop1 which will show some details of the request",
 			"curl -H \"a: b\" hop1/-fheader:a/hop2",
@@ -102,11 +102,6 @@ func step(ctx *cmdContext, r *reqLog, req *http.Request, rp *reqParams, command,
 			break
 		}
 		appendTLSInfo(r, req.TLS, "server")
-		if req.TLS != nil {
-			r.appendf("%v", req.TLS)
-		} else {
-			r.append("No TLS info in the request.")
-		}
 	case "-header", "-rheader":
 		hv := strings.SplitN(args, "=", 2)
 		if len(hv) != 2 {
@@ -139,8 +134,8 @@ func step(ctx *cmdContext, r *reqLog, req *http.Request, rp *reqParams, command,
 			return err
 		}
 		r.appendf("Appending %d bytes", b)
-		r.append(strings.Repeat("X", b))
-		r.append("\n")
+		r.appendln(strings.Repeat("X", b))
+		r.appendln("\n")
 	case "-env":
 		r.appendf("%s=%s", args, os.Getenv(args))
 	case "-size":
@@ -194,7 +189,7 @@ func step(ctx *cmdContext, r *reqLog, req *http.Request, rp *reqParams, command,
 			ctx.not = false
 		}
 	case "-quit":
-		r.append("Quitting")
+		r.appendln("Quitting")
 		defer q(1)
 	case "-crash":
 		defer q(2)
