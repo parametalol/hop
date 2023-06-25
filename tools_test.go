@@ -94,3 +94,23 @@ func TestGetFirstCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildURL(t *testing.T) {
+	cases := []struct{ addr, path, exp string }{
+		{"http%3a%2f%2fgoogle.com", "whoami", "http://google.com/whoami"},
+		{"http%3a%2f%2fgoogle.com/", "whoami", "http://google.com/whoami"},
+		{"http%3a%2f%2fgoogle.com/", "-whoami", "http://google.com/-whoami"},
+		{"http%3a%2f%2fgoogle.com", "-whoami", "http://google.com/-whoami"},
+		{"google.com", "-whoami", "http://google.com/-whoami"},
+		{"google.com", "", "http://google.com/"},
+		{"", "", "http://"},
+	}
+	for _, c := range cases {
+		t.Run(c.exp, func(t *testing.T) {
+			u, err := buildURL(c.addr, c.path)
+			assert.NilError(t, err)
+			exp, _ := url.Parse(c.exp)
+			assert.DeepEqual(t, exp, u)
+		})
+	}
+}

@@ -95,15 +95,12 @@ func buildURL(addr, path string) (*url.URL, error) {
 	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
 		addr = "http://" + addr
 	}
+	if addr[len(addr)-1] != '/' {
+		addr += "/"
+	}
 	u, err := url.Parse(fmt.Sprintf("%s%s", addr, path))
 	if err != nil {
 		return nil, fmt.Errorf("cannot call %s: %s", addr, err.Error())
-	}
-	if u == nil {
-		return nil, nil
-	}
-	if u.Scheme == "" {
-		u.Scheme = "http"
 	}
 	return u, nil
 }
