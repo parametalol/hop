@@ -1,4 +1,4 @@
 FROM scratch
 
-ADD main /
-CMD ["/main"]
+ADD hop /
+CMD ["/hop"]

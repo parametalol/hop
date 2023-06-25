@@ -54,6 +54,7 @@ func buildRequest(url *url.URL, headers *map[string]string, size int) (*http.Req
 	if err != nil || req == nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", "hop")
 
 	for h, v := range *headers {
 		if strings.ToLower(h) == "host" {
@@ -175,8 +176,17 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
-	s := cfg.startHttpServer(client, quit)
-	stls, err := cfg.startHttpsServer(client, p, quit)
+
+	hn, _ := os.Hostname()
+	slog := &serverLog{
+		Server: hn,
+		Iface:  cfg.localhost,
+		Port:   uint16(cfg.port_http),
+		Ports:  uint16(cfg.port_https),
+	}
+
+	s := cfg.startHttpServer(client, slog, quit)
+	stls, err := cfg.startHttpsServer(client, p, slog, quit)
 	if err != nil {
 		log.Panicf("failed to start HTTPS server: %v", err)
 	}

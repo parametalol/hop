@@ -3,7 +3,9 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -105,15 +107,17 @@ func buildURL(addr, path string) (*url.URL, error) {
 	return u, nil
 }
 
-func (handler *hopHandler) hop(r *reqLog, params *reqParams) int {
+func (handler *hopHandler) hop(params *reqParams) *commandLog {
+	clog := &commandLog{Command: "hop"}
+	r := &clog.Output
 	u := params.url
 	clientReq, err := buildRequest(u, &params.headers, params.size)
 	if err != nil {
 		r.appendf("Couldn't make %s: %s\n", u, err.Error())
-		return 0
+		return clog
 	} else if clientReq == nil {
 		r.appendf("Couldn't make %s by some reason\n", u)
-		return 0
+		return clog
 	}
 	if proxy_url, _ := proxy(clientReq); proxy_url != nil {
 		if handler.cfg.verbose {
@@ -128,33 +132,47 @@ func (handler *hopHandler) hop(r *reqLog, params *reqParams) int {
 		}
 	}
 	res, err := handler.client.callURL(clientReq)
+	clog.Code = uint(res.StatusCode)
+	clog.Url = u.String()
+
 	if err != nil {
 		r.appendf("Couldn't call %s: %s\n", u, err.Error())
-		return 0
+		return clog
 	} else if res == nil {
 		r.appendf("Couldn't call %s by some reason\n", u)
-		return 0
+		return clog
 	}
 	defer res.Body.Close()
-	r.appendf("Called %s: %s", u, res.Status)
 	if params.tlsInfo {
 		appendTLSInfo(r, res.TLS, "client")
 	}
 
 	if params.showHeaders {
 		var dump []byte
-		dump, err = httputil.DumpResponse(res, res.ContentLength < 1024)
+		dump, err = httputil.DumpResponse(res, false)
 		if err == nil {
-			for _, line := range strings.Split(string(dump), "\n") {
-				r.appendf(".\t%s", line)
-			}
-			if res.ContentLength >= 1024 {
-				r.appendf(".\t<%d bytes>", res.ContentLength)
+			for _, h := range strings.Split(string(dump), "\r\n") {
+				r.append(h)
 			}
 		} else {
 			r.appendln(err.Error())
 		}
 	}
+	isHopServer := res.Header.Get("Server") == "hop"
+	if isHopServer || res.ContentLength < 1024 {
+		if body, err := io.ReadAll(res.Body); err == nil {
+			if isHopServer {
+				if err = json.Unmarshal(body, &clog.Response); err != nil {
+					r.append(string(body))
+				}
+			} else {
+				r.append(string(body))
+			}
+		} else {
+			r.appendf("failed to read response body: %s", err)
+		}
+	}
+
 	c := res.StatusCode
 
 	for _, h := range params.fheaders {
@@ -167,5 +185,6 @@ func (handler *hopHandler) hop(r *reqLog, params *reqParams) int {
 	if c == 0 && err != nil {
 		c = 500
 	}
-	return c
+	params.code.set(c)
+	return clog
 }

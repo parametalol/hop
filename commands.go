@@ -16,7 +16,7 @@ type cmdContext struct {
 	skip, not bool
 }
 
-func makeReq(r *reqLog, req *http.Request) (*reqParams, error) {
+func makeReq(rlog *requestLog, req *http.Request) (*reqParams, error) {
 
 	nextCommand, path, err := getFirstCommand(req.URL)
 	if err != nil {
@@ -26,16 +26,15 @@ func makeReq(r *reqLog, req *http.Request) (*reqParams, error) {
 	rp := newReqParams()
 	ctx := &cmdContext{}
 	for strings.HasPrefix(nextCommand, "-") {
+		clog := &commandLog{
+			Command: nextCommand,
+		}
+		rlog.Process = append(rlog.Process, clog)
+		r := &clog.Output
 		cmd, args := splitCommandArgs(nextCommand)
 		if err := checkCommand(args, cmd); err != nil {
 			return nil, err
 		}
-		if args != "" {
-			r.appendf("Running %s:%s", cmd, args)
-		} else {
-			r.appendf("Running %s", cmd)
-		}
-
 		if err := step(ctx, r, req, rp, cmd, args); err != nil {
 			r.appendf("Error execuing %s(%s): %v", cmd, args, err)
 			return nil, err
@@ -44,7 +43,7 @@ func makeReq(r *reqLog, req *http.Request) (*reqParams, error) {
 	}
 	if nextCommand != "" {
 		if ctx.skip {
-			r.appendf("Skipping call to %s", nextCommand)
+			// r.appendf("Skipping call to %s", nextCommand)
 			return nil, nil
 		}
 		var err error
@@ -90,7 +89,7 @@ func step(ctx *cmdContext, r *reqLog, req *http.Request, rp *reqParams, command,
 		dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
 		if err == nil {
 			for _, line := range strings.Split(string(dump), "\n") {
-				r.appendf(".\t%s", line)
+				r.appendf("%s", line)
 			}
 		} else {
 			r.appendf("Error: %s", err)

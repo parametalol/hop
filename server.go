@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -16,6 +17,8 @@ import (
 type hopHandler struct {
 	cfg    *config
 	client *hopClient
+
+	log *serverLog
 }
 
 func getServer(host string, port uint16) *http.Server {
@@ -28,9 +31,9 @@ func getServer(host string, port uint16) *http.Server {
 	}
 }
 
-func (cfg *config) startHttpServer(client *hopClient, quit chan<- int) *http.Server {
+func (cfg *config) startHttpServer(client *hopClient, slog *serverLog, quit chan<- int) *http.Server {
 	s := getServer(cfg.localhost, uint16(cfg.port_http))
-	s.Handler = &hopHandler{cfg, client}
+	s.Handler = &hopHandler{cfg, client, slog}
 
 	go func() {
 		fmt.Println("Serving HTTP on", cfg.localhost, cfg.port_http)
@@ -41,9 +44,9 @@ func (cfg *config) startHttpServer(client *hopClient, quit chan<- int) *http.Ser
 	return s
 }
 
-func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, quit chan<- int) (*http.Server, error) {
+func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog *serverLog, quit chan<- int) (*http.Server, error) {
 	stls := getServer(cfg.localhost, uint16(cfg.port_https))
-	stls.Handler = &hopHandler{cfg, client}
+	stls.Handler = &hopHandler{cfg, client, slog}
 
 	var err error
 	var serverCert *tls.Certificate
@@ -91,26 +94,42 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	var r reqLog
+	slog := *handler.log
 
-	hn, _ := os.Hostname()
-	r.appendf("I'm %s, recieved %s %s from %s (%d bytes)", hn, req.Method, req.URL.RawPath, req.RemoteAddr, req.ContentLength)
+	slog.Request = &requestLog{
+		Path:   req.URL.RawPath,
+		Method: req.Method,
+		From:   req.RemoteAddr,
+		Size:   req.ContentLength,
+	}
 
-	rp, err := makeReq(&r, req)
+	slog.Request.Process = make([]*commandLog, 0)
+
+	rp, err := makeReq(slog.Request, req)
+	w.Header().Add("Server", "hop")
 	if err != nil {
 		w.WriteHeader(500)
-		r.appendf("Bad command: %v", err)
-		r.write(w)
-		return
+		slog.Request.Process = append(slog.Request.Process,
+			&commandLog{
+				Code:   500,
+				Output: reqLog{fmt.Sprintf("Bad command: %s", err)},
+			},
+		)
 	}
 	if rp != nil {
 		if rp.url != nil {
-			rp.code.set(handler.hop(&r, rp))
+			clog := handler.hop(rp)
+			slog.Request.Process = append(slog.Request.Process, clog)
 		}
 		w.WriteHeader(int(rp.code.set(200)))
 		for h, v := range rp.rheaders {
 			w.Header().Set(h, v)
 		}
 	}
-	r.write(w)
+	b, err := json.MarshalIndent(slog, "", "  ")
+	if err != nil {
+		log.Printf("Error marshalling response: %s", err)
+	} else {
+		w.Write(b)
+	}
 }
