@@ -1,17 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/0x656b694d/hop/tlstools"
+	"github.com/0x656b694d/hop/tools"
+	log "github.com/sirupsen/logrus"
 )
 
 func proxy(req *http.Request) (*url.URL, error) {
@@ -30,7 +34,6 @@ type hopClient struct {
 }
 
 func (cfg *config) getClient(roots *x509.CertPool) (*hopClient, error) {
-	log.Println("Initializing Client TLS")
 	transport := &http.Transport{
 		MaxIdleConns:    10,
 		IdleConnTimeout: 30 * time.Second,
@@ -42,7 +45,7 @@ func (cfg *config) getClient(roots *x509.CertPool) (*hopClient, error) {
 	if len(cfg.certificate) != 0 && len(cfg.key) != 0 {
 		tlsCert, err := tls.LoadX509KeyPair(cfg.certificate, cfg.key)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load client certificate or key: %s", err)
+			return nil, fmt.Errorf("failed to load client certificate or private key: %s", err)
 		}
 		transport.TLSClientConfig.Certificates = []tls.Certificate{tlsCert}
 	}
@@ -53,24 +56,29 @@ func (cfg *config) getClient(roots *x509.CertPool) (*hopClient, error) {
 	return &hopClient{http.Client{Transport: transport}, cfg}, nil
 }
 
-func (c *hopClient) callURL(req *http.Request) (*http.Response, error) {
+func (c *hopClient) callURL(req *http.Request, rtrip bool) (*http.Response, error) {
 	if c.cfg.verbose {
 		if dump, err := httputil.DumpRequest(req, req.ContentLength < 1024); err == nil {
-			log.Println(string(dump))
+			log.Debug(string(dump))
 		} else {
-			log.Println(err)
+			log.Error(err)
 		}
+	}
+	if rtrip {
+		return c.Client.Transport.RoundTrip(req)
 	}
 	return c.Do(req)
 }
 
 type reqParams struct {
 	url  *url.URL
-	code resultCode
+	code tools.ResultCode
 
 	size        int
 	showHeaders bool
 	tlsInfo     bool
+	method      string
+	rtrip       bool
 	headers     map[string]string
 	fheaders    []string
 	rheaders    map[string]string
@@ -90,67 +98,72 @@ func newReqParams() *reqParams {
 	}
 }
 
-func buildURL(addr, path string) (*url.URL, error) {
-	addr, err := url.PathUnescape(addr)
-	if err != nil {
+func buildRequest(url *url.URL, method string, headers *map[string]string, size int) (*http.Request, error) {
+	log.Infof("Call %s, sending %d bytes and %v", url, size, *headers)
+	payload := bytes.Repeat([]byte{'X'}, size)
+
+	if method == "" {
+		method = "GET"
+	}
+	req, err := http.NewRequest(method, url.String(), bytes.NewReader(payload))
+	if err != nil || req == nil {
 		return nil, err
 	}
-	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
-		addr = "http://" + addr
+
+	for h, v := range *headers {
+		if strings.ToLower(h) == "host" {
+			req.Host = v
+		} else {
+			req.Header.Set(h, v)
+		}
 	}
-	if addr[len(addr)-1] != '/' {
-		addr += "/"
-	}
-	u, err := url.Parse(fmt.Sprintf("%s%s", addr, path))
-	if err != nil {
-		return nil, fmt.Errorf("cannot call %s: %s", addr, err.Error())
-	}
-	return u, nil
+	return req, err
 }
 
 func (handler *hopHandler) hop(params *reqParams) *commandLog {
 	clog := &commandLog{Command: "hop"}
 	r := &clog.Output
 	u := params.url
-	clientReq, err := buildRequest(u, &params.headers, params.size)
+	clientReq, err := buildRequest(u, params.method, &params.headers, params.size)
 	if err != nil {
-		r.appendf("Couldn't make %s: %s\n", u, err.Error())
+		r.Appendf("Couldn't make %s: %s\n", u, err.Error())
 		return clog
 	} else if clientReq == nil {
-		r.appendf("Couldn't make %s by some reason\n", u)
+		r.Appendf("Couldn't make %s by some reason\n", u)
 		return clog
 	}
 	if proxy_url, _ := proxy(clientReq); proxy_url != nil {
 		if handler.cfg.verbose {
-			log.Printf("Using proxy: %s", proxy_url)
+			log.Infof("Using proxy: %s", proxy_url)
 		}
 		if !handler.cfg.proxy_tunneling {
 			clientReq.URL.Host = proxy_url.Host
-			r.appendf("Overriding url: %s", clientReq.URL)
+			r.Appendf("Overriding url: %s", clientReq.URL)
 		}
 		if params.showHeaders {
-			r.appendf("Using proxy: %s", proxy_url)
+			r.Appendf("Using proxy: %s", proxy_url)
 		}
 	}
-	res, err := handler.client.callURL(clientReq)
+	res, err := handler.client.callURL(clientReq, params.rtrip)
 	if err != nil {
-		logError(err)
-		r.append(err.Error())
+		log.Error(err)
+		r.Append(err.Error())
 		return clog
 	}
 	clog.Code = uint(res.StatusCode)
 	clog.Url = u.String()
 
 	if err != nil {
-		r.appendf("Couldn't call %s: %s\n", u, err.Error())
+		r.Appendf("Couldn't call %s: %s\n", u, err.Error())
 		return clog
 	} else if res == nil {
-		r.appendf("Couldn't call %s by some reason\n", u)
+		r.Appendf("Couldn't call %s by some reason\n", u)
 		return clog
 	}
 	defer res.Body.Close()
 	if params.tlsInfo {
-		appendTLSInfo(r, res.TLS, "client")
+		r.Append("Response TLS info:")
+		tlstools.AppendTLSInfo(r, res.TLS, handler.cfg.insecure)
 	}
 
 	if params.showHeaders {
@@ -158,10 +171,10 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 		dump, err = httputil.DumpResponse(res, false)
 		if err == nil {
 			for _, h := range strings.Split(string(dump), "\r\n") {
-				r.append(h)
+				r.Append(h)
 			}
 		} else {
-			r.appendln(err.Error())
+			r.Appendln(err.Error())
 		}
 	}
 	isHopServer := res.Header.Get("Server") == "hop"
@@ -169,13 +182,13 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 		if body, err := io.ReadAll(res.Body); err == nil {
 			if isHopServer {
 				if err = json.Unmarshal(body, &clog.Response); err != nil {
-					r.append(string(body))
+					r.Append(string(body))
 				}
 			} else {
-				r.append(string(body))
+				r.Append(string(body))
 			}
 		} else {
-			r.appendf("failed to read response body: %s", err)
+			r.Appendf("failed to read response body: %s", err)
 		}
 	}
 
@@ -183,7 +196,7 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 
 	for _, h := range params.fheaders {
 		v := res.Header.Get(h)
-		r.appendf("Back forwarding header %s: %s", h, v)
+		r.Appendf("Back forwarding header %s: %s", h, v)
 		if len(v) > 0 {
 			params.rheaders[h] = v
 		}
@@ -191,6 +204,6 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 	if c == 0 && err != nil {
 		c = 500
 	}
-	params.code.set(c)
+	params.code.Set(c)
 	return clog
 }

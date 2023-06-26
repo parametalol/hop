@@ -5,13 +5,16 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"log"
+	stdlog "log"
 	"net"
 	"net/http"
 	"net/http/httputil"
-	"os"
 	"strconv"
 	"time"
+
+	"github.com/0x656b694d/hop/tlstools"
+	"github.com/0x656b694d/hop/tools"
+	log "github.com/sirupsen/logrus"
 )
 
 type hopHandler struct {
@@ -27,7 +30,7 @@ func getServer(host string, port uint16) *http.Server {
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
-		ErrorLog:       log.New(os.Stdout, "http: ", 0),
+		ErrorLog:       stdlog.New(log.StandardLogger().Writer(), "http: ", 0),
 	}
 }
 
@@ -36,8 +39,8 @@ func (cfg *config) startHttpServer(client *hopClient, slog *serverLog, quit chan
 	s.Handler = &hopHandler{cfg, client, slog}
 
 	go func() {
-		logInfo("Serving HTTP on ", cfg.localhost, cfg.port_http)
-		logInfo(s.ListenAndServe())
+		log.Info("Serving HTTP on ", cfg.localhost, ":", cfg.port_http)
+		log.Info(s.ListenAndServe())
 		quit <- 3
 	}()
 
@@ -51,13 +54,13 @@ func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog
 	var err error
 	var serverCert *tls.Certificate
 	if cfg.cacert != "" && cfg.cakey != "" {
-		serverCert, err = signWith(cfg.serviceNames, cfg.cacert, cfg.cakey)
+		serverCert, err = tlstools.SignWith(cfg.serviceNames, cfg.cacert, cfg.cakey)
 		if err != nil {
 			return nil, fmt.Errorf("couldn't sign with provided files: %w", err)
 		}
 	} else if cfg.key == "" && cfg.certificate == "" {
 		var ca *x509.Certificate
-		serverCert, ca, err = getSelfSigned(cfg.serviceNames)
+		serverCert, ca, err = tlstools.GetSelfSigned(cfg.serviceNames)
 		if err != nil {
 			return nil, fmt.Errorf("couldn't self-sign server certificate: %w", err)
 		}
@@ -73,8 +76,8 @@ func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog
 	}
 
 	go func() {
-		logInfo("Serving HTTPS on ", cfg.localhost, cfg.port_https)
-		logInfo(stls.ListenAndServeTLS(cfg.certificate, cfg.key))
+		log.Info("Serving HTTPS on ", cfg.localhost, ":", cfg.port_https)
+		log.Info(stls.ListenAndServeTLS(cfg.certificate, cfg.key))
 		quit <- 4
 	}()
 
@@ -82,17 +85,12 @@ func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog
 }
 
 func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	elapsed := func(start time.Time) {
-		e := time.Since(start) / time.Millisecond
-		hopDurations.WithLabelValues("uniform").Observe(float64(e))
-	}
-	defer elapsed(time.Now())
 	if handler.cfg.verbose {
 		dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
 		if err == nil {
-			logDebug(string(dump))
+			log.Debug(string(dump))
 		} else {
-			logError(err)
+			log.Error(err)
 		}
 	}
 
@@ -114,26 +112,26 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		slog.Request.Process = append(slog.Request.Process,
 			&commandLog{
 				Code:   500,
-				Output: reqLog{fmt.Sprintf("Bad command: %s", err)},
+				Output: tools.ArrLog{fmt.Sprintf("Bad command: %s", err)},
 			},
 		)
 	}
 	if rp != nil {
 		if rp.url != nil {
-			logDebug("sending request to ", rp.url)
+			log.Debug("sending request to ", rp.url)
 			clog := handler.hop(rp)
 			slog.Request.Process = append(slog.Request.Process, clog)
 		}
-		w.WriteHeader(int(rp.code.set(200)))
+		w.WriteHeader(int(rp.code.Set(200)))
 		for h, v := range rp.rheaders {
 			w.Header().Set(h, v)
 		}
 	}
 	b, err := json.MarshalIndent(slog, "", "  ")
 	if err != nil {
-		logError("Error marshalling response: ", err.Error())
+		log.Error("Error marshalling response: ", err.Error())
 	} else {
 		w.Write(b)
-		logDebug(string(b))
+		log.Debug(string(b))
 	}
 }

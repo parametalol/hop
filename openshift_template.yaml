@@ -51,6 +51,7 @@ objects:
             secretName: "${NAME}-tls"
         containers:
         - image: smartptr/hop:latest
+          imagePullPolicy: Always
           name: "${NAME}"
           command:
           - /hop
@@ -69,6 +70,7 @@ objects:
           - "8443"
           - "--port-metrics"
           - "8080"
+          - "--verbose"
           volumeMounts:
           - name: "${NAME}-tls"
             mountPath: "/etc/tls/private"

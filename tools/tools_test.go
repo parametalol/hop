@@ -1,4 +1,4 @@
-package main
+package tools
 
 import (
 	"net/url"
@@ -7,48 +7,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestCode(t *testing.T) {
+	var c ResultCode
+
+	assert.Equal(t, 0, int(c))
+	c.Set(5)
+	assert.Equal(t, 5, int(c))
+	c.Set(6)
+	assert.Equal(t, 5, int(c))
+}
+
 func TestPop(t *testing.T) {
-	command, path := pop("abc/def/xyz")
+	command, path := Pop("abc/def/xyz")
 	assert.Equal(t, "abc", command)
 	assert.Equal(t, "def/xyz", path)
 
-	command, path = pop(path)
+	command, path = Pop(path)
 	assert.Equal(t, "def", command)
 	assert.Equal(t, "xyz", path)
 
-	command, path = pop(path)
+	command, path = Pop(path)
 	assert.Equal(t, "xyz", command)
 	assert.Equal(t, "", path)
 
-	command, path = pop(path)
+	command, path = Pop(path)
 	assert.Equal(t, "", command)
 	assert.Equal(t, "", path)
-}
-
-func addToR(r *reqLog, msg string) {
-	r.appendln(msg)
-}
-
-func TestRqLog(t *testing.T) {
-	var r reqLog
-
-	assert.Equal(t, 0, len(r))
-	r.appendln("abc", "xyz")
-	assert.Equal(t, 1, len(r))
-	assert.Equal(t, "abc\nxyz", r[0])
-	addToR(&r, "def")
-	assert.Equal(t, 2, len(r))
-	assert.Equal(t, "def", r[1])
-}
-
-func TestCode(t *testing.T) {
-	var c resultCode
-
-	assert.Equal(t, 0, int(c))
-	c.set(5)
-	assert.Equal(t, 5, int(c))
-	c.set(6)
-	assert.Equal(t, 5, int(c))
 }
 
 func TestSplitCommandArgs(t *testing.T) {
@@ -63,7 +47,7 @@ func TestSplitCommandArgs(t *testing.T) {
 	}
 	for test, c := range cases {
 		t.Run(test, func(t *testing.T) {
-			command, args := splitCommandArgs(c.input)
+			command, args := SplitCommandArgs(c.input)
 			assert.Equal(t, c.command, command)
 			assert.Equal(t, c.args, args)
 		})
@@ -87,7 +71,7 @@ func TestGetFirstCommand(t *testing.T) {
 		t.Run(test, func(t *testing.T) {
 			u, err := url.Parse(c.url)
 			assert.NoError(t, err)
-			f, n, err := getFirstCommand(u)
+			f, n, err := GetFirstCommand(u)
 			assert.NoError(t, err)
 			assert.Equal(t, c.first, f)
 			assert.Equal(t, c.next, n)
@@ -107,7 +91,7 @@ func TestBuildURL(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.exp, func(t *testing.T) {
-			u, err := buildURL(c.addr, c.path)
+			u, err := BuildURL(c.addr, c.path)
 			assert.NoError(t, err)
 			exp, _ := url.Parse(c.exp)
 			assert.Equal(t, exp, u)

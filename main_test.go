@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0x656b694d/hop/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,32 +24,32 @@ func TestReq(t *testing.T) {
 
 		err      error
 		url      string
-		code     resultCode
+		code     tools.ResultCode
 		skip     bool
-		logs     reqLog
+		logs     tools.ArrLog
 		commands []string
 
 		headers map[string]string
 	}{
 		"no such command": {command: "-bad command",
-			err: errNoSuchCommand, commands: []string{"-bad command"}, logs: reqLog{},
+			err: errNoSuchCommand, commands: []string{"-bad command"}, logs: tools.ArrLog{},
 		},
 		"code 500": {command: "-code:500",
-			code: 500, commands: []string{"-code:500"}, logs: reqLog{"Returning code 500"},
+			code: 500, commands: []string{"-code:500"}, logs: tools.ArrLog{"Returning code 500"},
 		},
 		"code no args": {command: "-code",
-			err: errMissingArguments, commands: []string{"-code"}, logs: reqLog{},
+			err: errMissingArguments, commands: []string{"-code"}, logs: tools.ArrLog{},
 		},
 		"code abc": {command: "-code:abc",
-			err: strconv.ErrSyntax, commands: []string{"-code:abc"}, logs: reqLog{"Error execuing -code(abc): strconv.Atoi: parsing \"abc\": invalid syntax"},
+			err: strconv.ErrSyntax, commands: []string{"-code:abc"}, logs: tools.ArrLog{"Error execuing -code(abc): strconv.Atoi: parsing \"abc\": invalid syntax"},
 		},
 		"size": {command: "-size:1",
-			commands: []string{"-size:1"}, logs: reqLog{"Will add 1 bytes to the following request"},
+			commands: []string{"-size:1"}, logs: tools.ArrLog{"Will add 1 bytes to the following request"},
 		},
 		"rsize": {command: "-rsize:1",
-			commands: []string{"-rsize:1"}, logs: reqLog{"Appending 1 bytes", "X", "\n"}},
+			commands: []string{"-rsize:1"}, logs: tools.ArrLog{"Appending 1 bytes", "X", "\n"}},
 		"header": {command: "-header:a=b",
-			commands: []string{"-header:a=b"}, logs: reqLog{"Will add header a: b"},
+			commands: []string{"-header:a=b"}, logs: tools.ArrLog{"Will add header a: b"},
 			headers: map[string]string{
 				"Accept-Encoding": "text/plain",
 				"Content-type":    "text/plain",
@@ -57,16 +58,16 @@ func TestReq(t *testing.T) {
 			},
 		},
 		"not": {command: "-not/-code:500",
-			code: 500, commands: []string{"-not", "-code:500"}, logs: reqLog{"Returning code 500"}},
+			code: 500, commands: []string{"-not", "-code:500"}, logs: tools.ArrLog{"Returning code 500"}},
 		"on": {command: "-on:" + hn + "/-code:500",
-			code: 500, commands: []string{"-on:" + hn, "-code:500"}, logs: reqLog{"Testing host " + hn + " for " + hn, "Returning code 500"}},
+			code: 500, commands: []string{"-on:" + hn, "-code:500"}, logs: tools.ArrLog{"Testing host " + hn + " for " + hn, "Returning code 500"}},
 		"not on": {command: "-not/-on:" + hn + "/-code:500",
-			code: 0, commands: []string{"-not", "-on:" + hn, "-code:500"}, logs: reqLog{"Testing host " + hn + " for " + hn, "Skipping -code(500)"}},
+			code: 0, commands: []string{"-not", "-on:" + hn, "-code:500"}, logs: tools.ArrLog{"Testing host " + hn + " for " + hn, "Skipping -code(500)"}},
 		"localhost": {command: "localhost%3A12/-code:404",
-			commands: []string{}, logs: reqLog{},
+			commands: []string{}, logs: tools.ArrLog{},
 			url: "http://localhost:12/-code:404"},
 		"localhost localhost": {command: "localhost%3A12/https%3A%2F%2Flocalhost%3A13/path",
-			commands: []string{}, logs: reqLog{},
+			commands: []string{}, logs: tools.ArrLog{},
 			url: "http://localhost:12/https%3A%2F%2Flocalhost%3A13/path"},
 	}
 
@@ -93,7 +94,7 @@ func TestReq(t *testing.T) {
 				}
 				assert.Equal(t, c.code, rp.code)
 			}
-			output := reqLog{}
+			output := tools.ArrLog{}
 			commands := []string{}
 			for _, c := range r.Process {
 				commands = append(commands, c.Command)
@@ -115,7 +116,7 @@ func TestReq(t *testing.T) {
 
 func TestSkipStep(t *testing.T) {
 	rp := newReqParams()
-	var r reqLog
+	var r tools.ArrLog
 
 	ctx := &cmdContext{skip: true}
 	err := step(ctx, &r, &http.Request{}, rp, "-code", "500")

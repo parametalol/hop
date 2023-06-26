@@ -1,12 +1,14 @@
 package main
 
+import "github.com/0x656b694d/hop/tools"
+
 type commandLog struct {
-	Command  string     `json:"command,omitempty"`
-	Output   reqLog     `json:"output,omitempty"`
-	Url      string     `json:"url,omitempty"`
-	Code     uint       `json:"code,omitempty"`
-	Response *serverLog `json:"response,omitempty"`
-	Error    string     `json:"error,omitempty"`
+	Command  string       `json:"command,omitempty"`
+	Output   tools.ArrLog `json:"output,omitempty"`
+	Url      string       `json:"url,omitempty"`
+	Code     uint         `json:"code,omitempty"`
+	Response *serverLog   `json:"response,omitempty"`
+	Error    string       `json:"error,omitempty"`
 }
 
 type requestLog struct {

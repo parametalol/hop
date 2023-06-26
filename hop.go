@@ -1,20 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/x509"
-	"log"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
-	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/0x656b694d/hop/tlstools"
+	log "github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
 )
 
@@ -27,6 +21,8 @@ var (
 		"-help":    {"", "return help message"},
 		"-if":      {"H=V", "execute next command if header H contains substring V"},
 		"-info":    {"", "return some info about the request"},
+		"-method":  {"M", "use M method for the request"},
+		"-rtrip":   {"", "do a round-trip request (no follow redirects and such)"},
 		"-tls":     {"", "include verbose TLS info"},
 		"-not":     {"", "reverts the effect of the next boolean command (if, on)"},
 		"-on":      {"H", "executes next command if the server host name contains substring H"},
@@ -45,51 +41,12 @@ var (
 	https_proxy_url *url.URL
 )
 
-func buildRequest(url *url.URL, headers *map[string]string, size int) (*http.Request, error) {
-	log.Printf("Call %s, sending %d bytes and %v", url, size, *headers)
-	payload := bytes.Repeat([]byte{'X'}, size)
-
-	req, err := http.NewRequest("GET", url.String(), bytes.NewReader(payload))
-	if err != nil || req == nil {
-		return nil, err
-	}
-
-	for h, v := range *headers {
-		if strings.ToLower(h) == "host" {
-			req.Host = v
-		} else {
-			req.Header.Set(h, v)
-		}
-	}
-	return req, err
-}
-
-var (
-	// Create a summary to track fictional interservice HOP latencies for three
-	// distinct services with different latency distributions. These services are
-	// differentiated via a "service" label.
-	hopDurations = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "hop_durations_seconds",
-			Help:       "HOP latency distributions.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"service"},
-	)
-)
-
-type nullWriter struct{}
-
-func (nw nullWriter) Write(p []byte) (n int, err error) {
-	return 0, nil
-}
-
 type config struct {
 	insecure        bool
 	verbose         bool
+	debug           bool
 	port_http       uint
 	port_https      uint
-	port_metrics    uint
 	http_proxy      string
 	https_proxy     string
 	proxy_tunneling bool
@@ -104,7 +61,6 @@ type config struct {
 func getConfig() *config {
 	var port_http uint64 = 80
 	var port_https uint64 = 443
-	var port_metrics uint64 = 8080
 	var err error
 	if s := os.Getenv("PORT"); len(s) != 0 {
 		port_http, err = strconv.ParseUint(s, 10, 16)
@@ -122,9 +78,9 @@ func getConfig() *config {
 	cfg := &config{}
 
 	flag.BoolVarP(&cfg.verbose, "verbose", "v", false, "verbose output")
+	flag.BoolVarP(&cfg.debug, "debug", "", false, "debug output")
 	flag.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
 	flag.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
-	flag.UintVarP(&cfg.port_metrics, "port-metrics", "", uint(port_metrics), "port Prometheus metrics")
 	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
 
 	flag.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
@@ -141,32 +97,15 @@ func getConfig() *config {
 	return cfg
 }
 
-var logger *log.Logger = log.Default()
-var logLevel = 0
-
-func logDebug(s ...any) {
-	if logLevel > 3 {
-		logger.Print(s...)
-	}
-}
-func logInfo(s ...any) {
-	if logLevel > 0 {
-		logger.Print(s...)
-	}
-}
-func logError(s ...any) {
-	logger.Print(s...)
-}
-
 func main() {
-
-	logger = log.New(os.Stderr, "", log.Ldate|log.Ltime)
 
 	cfg := getConfig()
 
 	if cfg.verbose {
-		logLevel = 4
-		log.SetOutput(os.Stdout)
+		log.SetLevel(log.InfoLevel)
+	}
+	if cfg.debug {
+		log.SetLevel(log.TraceLevel)
 	}
 	var err error
 	if len(cfg.https_proxy) != 0 {
@@ -176,21 +115,18 @@ func main() {
 		http_proxy_url, err = url.Parse(cfg.http_proxy)
 	}
 	if err != nil {
-		logger.Panicf("failed to parse parameters: %s", err)
+		log.Panicf("failed to parse parameters: %s", err)
 	}
 
-	// Register the summary and the histogram with Prometheus's default registry.
-	prometheus.MustRegister(hopDurations)
-
 	var p *x509.CertPool
-	p, err = getCertPool(cfg.cacert)
+	p, err = tlstools.GetCertPool(cfg.cacert)
 	if err != nil {
-		logger.Panic(err)
+		log.Panic(err)
 	}
 
 	client, err := cfg.getClient(p)
 	if err != nil {
-		logger.Panic(err)
+		log.Panic(err)
 	}
 
 	hn, _ := os.Hostname()
@@ -204,45 +140,29 @@ func main() {
 	s := cfg.startHttpServer(client, slog, quit)
 	stls, err := cfg.startHttpsServer(client, p, slog, quit)
 	if err != nil {
-		logger.Panicf("failed to start HTTPS server: %v", err)
+		log.Panicf("failed to start HTTPS server: %v", err)
 	}
-
-	metrics := &http.Server{
-		Addr:           net.JoinHostPort(cfg.localhost, strconv.FormatUint(uint64(cfg.port_metrics), 10)),
-		Handler:        promhttp.Handler(),
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		MaxHeaderBytes: 1 << 20,
-		ErrorLog:       log.New(os.Stdout, "http: ", 0),
-	}
-
-	go func() {
-		logInfo("Serving /metrics on ", cfg.localhost, cfg.port_metrics)
-		// metrics.Handle("/metrics", promhttp.Handler())
-		logInfo(metrics.ListenAndServe())
-		quit <- 5
-	}()
 
 	switch <-quit {
 	case 1:
-		logInfo("Shutting down")
+		log.Info("Shutting down")
 		err := s.Shutdown(context.Background())
 		if err != nil {
-			logError("Error:", err)
+			log.Error("Error:", err)
 		}
 		<-quit
 		if stls != nil {
 			err = stls.Shutdown(context.Background())
 			if err != nil {
-				logError("Error:", err)
+				log.Error("Error:", err)
 			}
 			<-quit
 		}
 		if err != nil {
-			logger.Panic("Failed to stop gracefully")
+			log.Panic("Failed to stop gracefully")
 		}
 	case 2:
-		logger.Panic("Rabbits are coming!")
+		log.Panic("Rabbits are coming!")
 	}
-	logInfo("Exiting normally")
+	log.Info("Exiting normally")
 }
