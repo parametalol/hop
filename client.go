@@ -81,6 +81,7 @@ func newReqParams() *reqParams {
 		headers: map[string]string{
 			"Content-type":    "text/plain",
 			"Accept-Encoding": "text/plain",
+			"User-Agent":      "hop",
 		},
 		rheaders: map[string]string{
 			"Content-type": "text/plain",
@@ -132,6 +133,11 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 		}
 	}
 	res, err := handler.client.callURL(clientReq)
+	if err != nil {
+		logError(err)
+		r.append(err.Error())
+		return clog
+	}
 	clog.Code = uint(res.StatusCode)
 	clog.Url = u.String()
 

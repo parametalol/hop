@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"gotest.tools/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPop(t *testing.T) {
@@ -86,9 +86,9 @@ func TestGetFirstCommand(t *testing.T) {
 	for test, c := range cases {
 		t.Run(test, func(t *testing.T) {
 			u, err := url.Parse(c.url)
-			assert.NilError(t, err)
+			assert.NoError(t, err)
 			f, n, err := getFirstCommand(u)
-			assert.NilError(t, err)
+			assert.NoError(t, err)
 			assert.Equal(t, c.first, f)
 			assert.Equal(t, c.next, n)
 		})
@@ -108,9 +108,9 @@ func TestBuildURL(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.exp, func(t *testing.T) {
 			u, err := buildURL(c.addr, c.path)
-			assert.NilError(t, err)
+			assert.NoError(t, err)
 			exp, _ := url.Parse(c.exp)
-			assert.DeepEqual(t, exp, u)
+			assert.Equal(t, exp, u)
 		})
 	}
 }

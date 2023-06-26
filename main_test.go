@@ -8,94 +8,107 @@ import (
 	"strings"
 	"testing"
 
-	"gotest.tools/assert"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReq(t *testing.T) {
 
 	def := newReqParams()
 	hn, err := os.Hostname()
-	assert.NilError(t, err)
+	assert.NoError(t, err)
 
 	cases := map[string]struct {
 		command string
 
-		err  error
-		url  string
-		code resultCode
-		skip bool
-		logs string
+		err      error
+		url      string
+		code     resultCode
+		skip     bool
+		logs     reqLog
+		commands []string
 
 		headers map[string]string
 	}{
 		"no such command": {command: "-bad command",
-			err: errNoSuchCommand,
+			err: errNoSuchCommand, commands: []string{"-bad command"}, logs: reqLog{},
 		},
 		"code 500": {command: "-code:500",
-			code: 500, logs: "Running -code:500\nReturning code 500",
+			code: 500, commands: []string{"-code:500"}, logs: reqLog{"Returning code 500"},
 		},
 		"code no args": {command: "-code",
-			err: errMissingArguments,
+			err: errMissingArguments, commands: []string{"-code"}, logs: reqLog{},
 		},
 		"code abc": {command: "-code:abc",
-			err: &strconv.NumError{},
+			err: strconv.ErrSyntax, commands: []string{"-code:abc"}, logs: reqLog{"Error execuing -code(abc): strconv.Atoi: parsing \"abc\": invalid syntax"},
 		},
 		"size": {command: "-size:1",
-			logs: "Running -size:1\nWill add 1 bytes to the following request",
+			commands: []string{"-size:1"}, logs: reqLog{"Will add 1 bytes to the following request"},
 		},
 		"rsize": {command: "-rsize:1",
-			logs: "Running -rsize:1\nAppending 1 bytes\nX\n\n"},
+			commands: []string{"-rsize:1"}, logs: reqLog{"Appending 1 bytes", "X", "\n"}},
 		"header": {command: "-header:a=b",
-			logs: "Running -header:a=b\nWill add header a: b",
+			commands: []string{"-header:a=b"}, logs: reqLog{"Will add header a: b"},
 			headers: map[string]string{
 				"Accept-Encoding": "text/plain",
 				"Content-type":    "text/plain",
+				"User-Agent":      "hop",
 				"a":               "b",
 			},
 		},
 		"not": {command: "-not/-code:500",
-			code: 500, logs: "Running -not\nRunning -code:500\nReturning code 500"},
+			code: 500, commands: []string{"-not", "-code:500"}, logs: reqLog{"Returning code 500"}},
 		"on": {command: "-on:" + hn + "/-code:500",
-			code: 500, logs: "Running -on:" + hn + "\nTesting host " + hn + " for " + hn + "\nRunning -code:500\nReturning code 500"},
+			code: 500, commands: []string{"-on:" + hn, "-code:500"}, logs: reqLog{"Testing host " + hn + " for " + hn, "Returning code 500"}},
 		"not on": {command: "-not/-on:" + hn + "/-code:500",
-			code: 0, logs: "Running -not\nRunning -on:" + hn + "\nTesting host " + hn + " for " + hn + "\nRunning -code:500\nSkipping -code(500)"},
+			code: 0, commands: []string{"-not", "-on:" + hn, "-code:500"}, logs: reqLog{"Testing host " + hn + " for " + hn, "Skipping -code(500)"}},
 		"localhost": {command: "localhost%3A12/-code:404",
+			commands: []string{}, logs: reqLog{},
 			url: "http://localhost:12/-code:404"},
 		"localhost localhost": {command: "localhost%3A12/https%3A%2F%2Flocalhost%3A13/path",
+			commands: []string{}, logs: reqLog{},
 			url: "http://localhost:12/https%3A%2F%2Flocalhost%3A13/path"},
 	}
 
 	for test, c := range cases {
 		t.Run(test, func(t *testing.T) {
-			var r reqLog
+			var r requestLog
 			u, err := url.Parse("http://testhost/" + c.command)
-			assert.NilError(t, err)
+			assert.NoError(t, err)
 			rp, err := makeReq(&r, &http.Request{URL: u})
 			if c.err != nil {
-				assert.ErrorType(t, c.err, err)
-				assert.Equal(t, (*reqParams)(nil), rp)
-				return
+				require.Error(t, err)
+				require.ErrorIs(t, err, c.err)
+				require.Equal(t, (*reqParams)(nil), rp)
 			} else {
-				assert.NilError(t, err)
+				require.NoError(t, err)
 			}
 			if rp != nil {
 				if c.url != "" {
 					u, _ := url.Parse(c.url)
-					assert.DeepEqual(t, u, rp.url)
+					assert.Equal(t, u, rp.url)
 				} else {
 					assert.Equal(t, (*url.URL)(nil), rp.url)
 
 				}
 				assert.Equal(t, c.code, rp.code)
-			} else {
-				assert.Equal(t, (*reqParams)(nil), rp)
 			}
-			assert.Equal(t, c.logs, strings.Join(r, "\n"))
+			output := reqLog{}
+			commands := []string{}
+			for _, c := range r.Process {
+				commands = append(commands, c.Command)
+				output = append(output, c.Output...)
+			}
+			assert.Equal(t, c.commands, commands)
+			assert.Equal(t, c.logs, output)
+
 			if c.headers != nil {
-				assert.DeepEqual(t, c.headers, rp.headers)
-			} else {
-				assert.DeepEqual(t, def.headers, rp.headers)
+				require.NotNil(t, rp)
+				assert.Equal(t, c.headers, rp.headers)
+			} else if rp != nil {
+				assert.Equal(t, def.headers, rp.headers)
 			}
+
 		})
 	}
 }
@@ -106,7 +119,7 @@ func TestSkipStep(t *testing.T) {
 
 	ctx := &cmdContext{skip: true}
 	err := step(ctx, &r, &http.Request{}, rp, "-code", "500")
-	assert.NilError(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, 0, int(rp.code))
 	assert.Equal(t, "Skipping -code(500)", strings.Join(r, "\n"))
 	assert.Equal(t, false, ctx.skip)

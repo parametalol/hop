@@ -36,8 +36,8 @@ func (cfg *config) startHttpServer(client *hopClient, slog *serverLog, quit chan
 	s.Handler = &hopHandler{cfg, client, slog}
 
 	go func() {
-		fmt.Println("Serving HTTP on", cfg.localhost, cfg.port_http)
-		fmt.Println(s.ListenAndServe())
+		logInfo("Serving HTTP on ", cfg.localhost, cfg.port_http)
+		logInfo(s.ListenAndServe())
 		quit <- 3
 	}()
 
@@ -66,13 +66,15 @@ func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog
 		}
 	}
 	stls.TLSConfig = &tls.Config{
-		ClientCAs:    pool,
-		Certificates: []tls.Certificate{*serverCert},
+		ClientCAs: pool,
+	}
+	if serverCert != nil {
+		stls.TLSConfig.Certificates = []tls.Certificate{*serverCert}
 	}
 
 	go func() {
-		fmt.Println("Serving HTTPS on", cfg.localhost, cfg.port_https)
-		fmt.Println(stls.ListenAndServeTLS(cfg.certificate, cfg.key))
+		logInfo("Serving HTTPS on ", cfg.localhost, cfg.port_https)
+		logInfo(stls.ListenAndServeTLS(cfg.certificate, cfg.key))
 		quit <- 4
 	}()
 
@@ -88,9 +90,9 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if handler.cfg.verbose {
 		dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
 		if err == nil {
-			log.Println(string(dump))
+			logDebug(string(dump))
 		} else {
-			log.Println(err)
+			logError(err)
 		}
 	}
 
@@ -118,6 +120,7 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	if rp != nil {
 		if rp.url != nil {
+			logDebug("sending request to ", rp.url)
 			clog := handler.hop(rp)
 			slog.Request.Process = append(slog.Request.Process, clog)
 		}
@@ -128,8 +131,9 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	b, err := json.MarshalIndent(slog, "", "  ")
 	if err != nil {
-		log.Printf("Error marshalling response: %s", err)
+		logError("Error marshalling response: ", err.Error())
 	} else {
 		w.Write(b)
+		logDebug(string(b))
 	}
 }

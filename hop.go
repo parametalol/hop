@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -54,7 +53,6 @@ func buildRequest(url *url.URL, headers *map[string]string, size int) (*http.Req
 	if err != nil || req == nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "hop")
 
 	for h, v := range *headers {
 		if strings.ToLower(h) == "host" {
@@ -143,14 +141,32 @@ func getConfig() *config {
 	return cfg
 }
 
+var logger *log.Logger = log.Default()
+var logLevel = 0
+
+func logDebug(s ...any) {
+	if logLevel > 3 {
+		logger.Print(s...)
+	}
+}
+func logInfo(s ...any) {
+	if logLevel > 0 {
+		logger.Print(s...)
+	}
+}
+func logError(s ...any) {
+	logger.Print(s...)
+}
+
 func main() {
+
+	logger = log.New(os.Stderr, "", log.Ldate|log.Ltime)
 
 	cfg := getConfig()
 
 	if cfg.verbose {
+		logLevel = 4
 		log.SetOutput(os.Stdout)
-	} else {
-		log.SetOutput(nullWriter{})
 	}
 	var err error
 	if len(cfg.https_proxy) != 0 {
@@ -160,7 +176,7 @@ func main() {
 		http_proxy_url, err = url.Parse(cfg.http_proxy)
 	}
 	if err != nil {
-		log.Panicf("failed to parse parameters: %s", err)
+		logger.Panicf("failed to parse parameters: %s", err)
 	}
 
 	// Register the summary and the histogram with Prometheus's default registry.
@@ -169,12 +185,12 @@ func main() {
 	var p *x509.CertPool
 	p, err = getCertPool(cfg.cacert)
 	if err != nil {
-		log.Panic(err)
+		logger.Panic(err)
 	}
 
 	client, err := cfg.getClient(p)
 	if err != nil {
-		log.Panic(err)
+		logger.Panic(err)
 	}
 
 	hn, _ := os.Hostname()
@@ -188,7 +204,7 @@ func main() {
 	s := cfg.startHttpServer(client, slog, quit)
 	stls, err := cfg.startHttpsServer(client, p, slog, quit)
 	if err != nil {
-		log.Panicf("failed to start HTTPS server: %v", err)
+		logger.Panicf("failed to start HTTPS server: %v", err)
 	}
 
 	metrics := &http.Server{
@@ -201,32 +217,32 @@ func main() {
 	}
 
 	go func() {
-		fmt.Println("Serving /metrics on", cfg.localhost, cfg.port_metrics)
+		logInfo("Serving /metrics on ", cfg.localhost, cfg.port_metrics)
 		// metrics.Handle("/metrics", promhttp.Handler())
-		fmt.Println(metrics.ListenAndServe())
+		logInfo(metrics.ListenAndServe())
 		quit <- 5
 	}()
 
 	switch <-quit {
 	case 1:
-		fmt.Println("Shutting down")
+		logInfo("Shutting down")
 		err := s.Shutdown(context.Background())
 		if err != nil {
-			fmt.Println("Error:", err)
+			logError("Error:", err)
 		}
 		<-quit
 		if stls != nil {
 			err = stls.Shutdown(context.Background())
 			if err != nil {
-				fmt.Println("Error:", err)
+				logError("Error:", err)
 			}
 			<-quit
 		}
 		if err != nil {
-			panic("Failed to stop gracefully")
+			logger.Panic("Failed to stop gracefully")
 		}
 	case 2:
-		panic("Rabbits are coming!")
+		logger.Panic("Rabbits are coming!")
 	}
-	fmt.Println("Exiting normally")
+	logInfo("Exiting normally")
 }

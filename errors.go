@@ -12,7 +12,7 @@ func wrapErr(err error, command string) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("%s: %s", command, err)
+	return fmt.Errorf("%s: %w", command, err)
 }
 
 func checkCommand(args, command string) error {
