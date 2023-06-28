@@ -43,15 +43,17 @@ func (cfg *config) getClient(roots *x509.CertPool) (*hopClient, error) {
 			InsecureSkipVerify: cfg.insecure,
 		},
 	}
-	if cfg.certificate != "" && cfg.key != "" {
-		tlsCert, err := tls.LoadX509KeyPair(cfg.certificate, cfg.key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load client certificate or private key: %s", err)
+	if cfg.mtls {
+		if cfg.certificate != "" && cfg.key != "" {
+			tlsCert, err := tls.LoadX509KeyPair(cfg.certificate, cfg.key)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load client certificate or private key: %s", err)
+			}
+			transport.TLSClientConfig.Certificates = []tls.Certificate{tlsCert}
+		} else {
+			log.Debug("adding client certificate for mTLS")
+			transport.TLSClientConfig.Certificates = []tls.Certificate{*cfg.getCert("Hop client")}
 		}
-		transport.TLSClientConfig.Certificates = []tls.Certificate{tlsCert}
-	} else {
-		log.Debug("adding client certificate for mTLS")
-		transport.TLSClientConfig.Certificates = []tls.Certificate{*cfg.getCert("Hop client")}
 	}
 	if cfg.proxy_tunneling {
 		transport.Proxy = proxy

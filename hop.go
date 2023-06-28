@@ -58,6 +58,7 @@ type config struct {
 	cacert          string
 	cakey           string
 	certificate     string
+	mtls            bool
 	key             string
 	localhost       string
 	serviceNames    []string
@@ -97,6 +98,7 @@ func getConfig() *config {
 	flag.StringVarP(&cfg.cakey, "cakey", "", "", "CA certificate private key PEM file")
 	flag.StringVarP(&cfg.certificate, "cert", "", "", "server certificate PEM file")
 	flag.StringVarP(&cfg.key, "key", "", "", "server private key PEM file")
+	flag.BoolVarP(&cfg.mtls, "mtls", "m", false, "set client certificate (same as cert)")
 	flag.StringArrayVarP(&cfg.serviceNames, "name", "n", []string{"localhost"}, "the service DNS name(s) for the certificate")
 
 	flag.Parse()
