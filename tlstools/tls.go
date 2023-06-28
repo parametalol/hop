@@ -47,10 +47,14 @@ func Init(builtin_ca bool) {
 	pool.AddCert(ca)
 }
 
-func GetCertPool(cacertFile string) (*x509.CertPool, error) {
-	if cacertFile == "" {
-		return pool, nil
+func GetCertPool(cacertFiles []string) (*x509.CertPool, error) {
+	for _, cacertFile := range cacertFiles {
+		addCA(cacertFile)
 	}
+	return pool, nil
+}
+
+func addCA(cacertFile string) (*x509.CertPool, error) {
 	data, err := os.ReadFile(cacertFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load root certificate from %s: %s", cacertFile, err)

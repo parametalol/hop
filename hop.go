@@ -55,6 +55,7 @@ type config struct {
 	http_proxy      string
 	https_proxy     string
 	proxy_tunneling bool
+	cacerts         []string
 	cacert          string
 	cakey           string
 	certificate     string
@@ -94,7 +95,8 @@ func getConfig() *config {
 	flag.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
 	flag.StringVarP(&cfg.https_proxy, "https-proxy", "", os.Getenv("https_proxy"), "HTTPS proxy")
 	flag.BoolVarP(&cfg.proxy_tunneling, "proxy-tunneling", "", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
-	flag.StringVarP(&cfg.cacert, "cacert", "", "", "CA certificate PEM file")
+	flag.StringArrayVarP(&cfg.cacerts, "cacerts", "", nil, "trusted CA certificate PEM files")
+	flag.StringVarP(&cfg.cacert, "cacert", "", "", "CA certificate to sign server and client certificates")
 	flag.StringVarP(&cfg.cakey, "cakey", "", "", "CA certificate private key PEM file")
 	flag.StringVarP(&cfg.certificate, "cert", "", "", "server certificate PEM file")
 	flag.StringVarP(&cfg.key, "key", "", "", "server private key PEM file")
@@ -128,8 +130,11 @@ func main() {
 		log.Panicf("failed to parse parameters: %s", err)
 	}
 
+	if cfg.cacert != "" {
+		cfg.cacerts = append(cfg.cacerts, cfg.cacert)
+	}
 	var p *x509.CertPool
-	p, err = tlstools.GetCertPool(cfg.cacert)
+	p, err = tlstools.GetCertPool(cfg.cacerts)
 	if err != nil {
 		log.Panic(err)
 	}

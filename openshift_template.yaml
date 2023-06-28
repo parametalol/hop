@@ -27,18 +27,19 @@ parameters:
   description: The prometheus endpoint HTTP port. Defaults to '8080'.
 
 objects:
-- apiVersion: v1
-  kind: DeploymentConfig
+- apiVersion: apps/v1
+  kind: Deployment
   metadata:
     name: "${NAME}"
   spec:
     replicas: 1
     selector:
-      name: "${NAME}"
+      matchLabels:
+        name: "${NAME}"
     triggers:
     - type: ConfigChange
     strategy:
-      type: Rolling
+      type: RollingUpdate
     template:
       metadata:
         labels:
@@ -68,8 +69,6 @@ objects:
           - "8000"
           - "--port-https"
           - "8443"
-          - "--port-metrics"
-          - "8080"
           - "--verbose"
           volumeMounts:
           - name: "${NAME}-tls"
