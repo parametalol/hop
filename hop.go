@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -45,6 +49,7 @@ type config struct {
 	insecure        bool
 	verbose         bool
 	debug           bool
+	static_ca       bool
 	port_http       uint
 	port_https      uint
 	http_proxy      string
@@ -79,6 +84,7 @@ func getConfig() *config {
 
 	flag.BoolVarP(&cfg.verbose, "verbose", "v", false, "verbose output")
 	flag.BoolVarP(&cfg.debug, "debug", "", false, "debug output")
+	flag.BoolVarP(&cfg.static_ca, "static-ca", "", true, "use built-in static CA")
 	flag.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
 	flag.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
 	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
@@ -107,6 +113,8 @@ func main() {
 	if cfg.debug {
 		log.SetLevel(log.TraceLevel)
 	}
+	tlstools.Init(cfg.static_ca)
+
 	var err error
 	if len(cfg.https_proxy) != 0 {
 		https_proxy_url, err = url.Parse(cfg.https_proxy)
@@ -127,6 +135,42 @@ func main() {
 	client, err := cfg.getClient(p)
 	if err != nil {
 		log.Panic(err)
+	}
+
+	if flag.NArg() == 1 {
+		u, err := url.Parse(flag.Arg(0))
+		if err != nil {
+			log.Panic(err)
+		}
+		params := newReqParams()
+		params.tlsInfo = true
+		params.showHeaders = true
+		if req, err := BuildRequest(u, http.MethodGet, params.headers, 0); err != nil {
+			log.Error(err)
+		} else {
+			if res, err := client.Do(req); err != nil {
+				log.Error(err)
+			} else {
+				clog := commandLog{}
+				if err := TreatResponse(&clog, res, params, cfg.insecure); err != nil {
+					log.Error(err)
+				}
+				fmt.Println("Command output:")
+				for _, line := range clog.Output {
+					fmt.Println(line)
+				}
+				fmt.Println("Response:")
+				if clog.Response != nil {
+					b, err := json.MarshalIndent(clog.Response, "", "  ")
+					if err != nil {
+						log.Error(err)
+					} else {
+						fmt.Println(string(b))
+					}
+				}
+			}
+		}
+		return
 	}
 
 	hn, _ := os.Hostname()
@@ -165,4 +209,12 @@ func main() {
 		log.Panic("Rabbits are coming!")
 	}
 	log.Info("Exiting normally")
+}
+
+func (cfg *config) getCert(cn string) *tls.Certificate {
+	serverCert, err := tlstools.SignWith(cfg.serviceNames, cn, cfg.cacert, cfg.cakey)
+	if err != nil {
+		log.Panicf("couldn't sign with provided files: %s", err)
+	}
+	return serverCert
 }

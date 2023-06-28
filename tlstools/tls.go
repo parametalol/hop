@@ -1,12 +1,12 @@
 package tlstools
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	_ "embed"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -14,76 +14,65 @@ import (
 	"os"
 	"time"
 
-	"github.com/0x656b694d/hop/tools"
+	log "github.com/sirupsen/logrus"
 )
 
-func GetCertPool(cacert string) (*x509.CertPool, error) {
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		return nil, fmt.Errorf("failed to obtain the system certificates pool: %s", err)
-	}
-	if len(cacert) != 0 {
-		data, err := os.ReadFile(cacert)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load root certificate from %s: %s", cacert, err)
-		}
-		ok := roots.AppendCertsFromPEM(data)
-		if !ok {
-			return nil, fmt.Errorf("failed to parse root certificate from %s", cacert)
-		}
-	}
-	return roots, nil
-}
+var (
+	ca   *x509.Certificate
+	capk *rsa.PrivateKey
+	pool *x509.CertPool
+)
 
-func PrintCert(r *tools.ArrLog, cert *x509.Certificate) {
-	r.Appendf("Issuer:       %s", cert.Issuer)
-	r.Appendf("Is CA:        %v", cert.IsCA)
-	r.Appendf("DNS Names:    %v", cert.DNSNames)
-	r.Appendf("IP Addresses: %v", cert.IPAddresses)
-	r.Appendf("URIs:         %v", cert.URIs)
-	r.Append("Validity:")
-	r.Appendf("  Not Before:   %v", cert.NotBefore)
-	r.Appendf("  Not After:    %v", cert.NotAfter)
-	r.Appendf("Signature Algorithm: %s", cert.SignatureAlgorithm)
-}
+//go:embed ca.crt
+var caCRTfile string
 
-func AppendTLSInfo(r *tools.ArrLog, t *tls.ConnectionState, insecure bool) {
-	if t == nil {
-		r.Appendln("No TLS info.")
-		return
-	}
-	r.Appendf("TLS version 0x%x, cipher 0x%x, protocol %s, server name %s",
-		t.Version, t.CipherSuite, t.NegotiatedProtocol, t.ServerName,
-	)
-	for _, ps := range t.PeerCertificates {
-		PrintCert(r, ps)
-	}
+//go:embed ca.key
+var caPKfile string
 
-	if len(t.VerifiedChains) == 0 {
-		if insecure {
-			r.Append("Verification disabled")
-		} else {
-			r.Appendf("Empty verified chain")
-		}
+func Init(builtin_ca bool) {
+	var err error
+	if builtin_ca {
+		capk, _ = x509.ParsePKCS1PrivateKey(PEMDecode([]byte(caPKfile)))
+		ca, _ = x509.ParseCertificate(PEMDecode([]byte(caCRTfile)))
 	} else {
-		r.Append("Verified chain:")
-		for _, chain := range t.VerifiedChains {
-			for _, x := range chain {
-				if x == nil {
-					continue
-				}
-				r.Appendf("Verified issuer %v, subject %v", x.Issuer, x.Subject)
-			}
+		ca, capk, err = genCA()
+		if err != nil {
+			log.Panic(err)
 		}
 	}
+	pool, err = x509.SystemCertPool()
+	if err != nil {
+		log.Panicf("failed to obtain the system certificates pool: %s", err)
+	}
+	pool.AddCert(ca)
 }
 
-func GenCA() (*x509.Certificate, []byte, *rsa.PrivateKey, error) {
-	ca := &x509.Certificate{
+func GetCertPool(cacert string) (*x509.CertPool, error) {
+	if cacert == "" {
+		return pool, nil
+	}
+	data, err := os.ReadFile(cacert)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load root certificate from %s: %s", cacert, err)
+	}
+	ok := pool.AppendCertsFromPEM(data)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse root certificate from %s", cacert)
+	}
+	return pool, nil
+}
+
+func genCA() (*x509.Certificate, *rsa.PrivateKey, error) {
+	name := pkix.Name{
+		CommonName: "Hop dynamic CA",
+	}
+	now := time.Now()
+	caTemplate := &x509.Certificate{
 		SerialNumber:          big.NewInt(2019),
-		Subject:               pkix.Name{},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().AddDate(10, 0, 0),
+		Subject:               name,
+		Issuer:                name,
+		NotBefore:             now,
+		NotAfter:              now.AddDate(10, 0, 0),
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
@@ -92,27 +81,26 @@ func GenCA() (*x509.Certificate, []byte, *rsa.PrivateKey, error) {
 
 	caPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cannot generate CA private key: %w", err)
+		return nil, nil, fmt.Errorf("cannot generate CA private key: %w", err)
 	}
 
-	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
+	caBytes, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caPrivKey.PublicKey, caPrivKey)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cannot create CA certificate: %w", err)
+		return nil, nil, fmt.Errorf("cannot create CA certificate: %w", err)
 	}
-	caPEM, err := PEMEncode(caBytes, "CERTIFICATE")
+	cacert, err := x509.ParseCertificate(caBytes)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	return ca, caPEM, caPrivKey, err
+	log.Info("CA certificate:")
+	log.Info(string(PEMEncode(caBytes, "CERTIFICATE")))
+	log.Info(string(PEMEncode(x509.MarshalPKCS1PrivateKey(caPrivKey), "RSA PRIVATE KEY")))
+
+	return cacert, caPrivKey, err
 }
 
-func PEMEncode(data []byte, dataType string) ([]byte, error) {
-	buf := new(bytes.Buffer)
-	err := pem.Encode(buf, &pem.Block{Type: dataType, Bytes: data})
-	if err != nil {
-		return nil, fmt.Errorf("failed to PEM encode %s: %w", dataType, err)
-	}
-	return buf.Bytes(), nil
+func PEMEncode(data []byte, dataType string) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: dataType, Bytes: data})
 }
 
 func PEMDecode(data []byte) []byte {
@@ -120,17 +108,19 @@ func PEMDecode(data []byte) []byte {
 	return block.Bytes
 }
 
-func GenServerCert(names []string) (*x509.Certificate, *rsa.PrivateKey, error) {
+func GenCert(names []string, cn string) (*x509.Certificate, *rsa.PrivateKey, error) {
+	now := time.Now()
 	serverCert := &x509.Certificate{
-		SerialNumber: big.NewInt(2019),
+		SerialNumber: big.NewInt(2023),
 		DNSNames:     names,
-		Subject:      pkix.Name{},
+		Issuer:       ca.Issuer,
+		Subject:      pkix.Name{CommonName: cn},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().AddDate(10, 0, 0),
-		SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		NotBefore:    now,
+		NotAfter:     now.AddDate(10, 0, 0),
+		IsCA:         true,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:     x509.KeyUsageDigitalSignature,
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageCRLSign | x509.KeyUsageCertSign,
 	}
 
 	certPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
@@ -145,34 +135,30 @@ func Sign(serviceCert, ca *x509.Certificate, serviceCertPubKey *rsa.PublicKey, c
 	if err != nil {
 		return nil, fmt.Errorf("cannot sign server certificate: %w", err)
 	}
-	return PEMEncode(certBytes, "CERTIFICATE")
+	return PEMEncode(certBytes, "CERTIFICATE"), nil
 }
 
-func SelfSign(names []string) (*x509.Certificate, []byte, *rsa.PrivateKey, error) {
-	ca, _, caPrivKey, err := GenCA()
+func SelfSign(names []string, cn string) ([]byte, *rsa.PrivateKey, error) {
+	cert, pk, err := GenCert(names, cn)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	cert, pk, err := GenServerCert(names)
+	signedPEM, err := Sign(cert, ca, &pk.PublicKey, capk)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	signed, err := Sign(cert, ca, &pk.PublicKey, caPrivKey)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return ca, signed, pk, err
+	return signedPEM, pk, err
 }
 
-func SignWith(names []string, cacertFile, cakeyFile string) (*tls.Certificate, error) {
-	cert, pk, err := GenServerCert(names)
+func SignWith(names []string, cn, cacertFile, cakeyFile string) (*tls.Certificate, error) {
+	if cacertFile == "" || cakeyFile == "" {
+		return GetSelfSigned(names, cn)
+	}
+	cert, pk, err := GenCert(names, cn)
 	if err != nil {
 		return nil, err
 	}
-	pkPEM, err := PEMEncode(x509.MarshalPKCS1PrivateKey(pk), "RSA PRIVATE KEY")
-	if err != nil {
-		return nil, fmt.Errorf("cannot encode private key: %w", err)
-	}
+	pkPEM := PEMEncode(x509.MarshalPKCS1PrivateKey(pk), "RSA PRIVATE KEY")
 	cacertBytes, err := os.ReadFile(cacertFile)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read cacert file: %w", err)
@@ -194,29 +180,26 @@ func SignWith(names []string, cacertFile, cakeyFile string) (*tls.Certificate, e
 	if !ok {
 		return nil, fmt.Errorf("not an RSA private key in %s", cakeyFile)
 	}
-	signed, err := Sign(cert, cacert, &pk.PublicKey, rsaKey)
+	signedPEM, err := Sign(cert, cacert, &pk.PublicKey, rsaKey)
 	if err != nil {
 		return nil, err
 	}
-	serverCert, err := tls.X509KeyPair(signed, pkPEM)
+	serverCert, err := tls.X509KeyPair(signedPEM, pkPEM)
 	if err != nil {
 		return nil, fmt.Errorf("cannot generate key pair: %w", err)
 	}
 	return &serverCert, nil
 }
 
-func GetSelfSigned(names []string) (*tls.Certificate, *x509.Certificate, error) {
-	ca, cert, pk, err := SelfSign(names)
+func GetSelfSigned(names []string, cn string) (*tls.Certificate, error) {
+	certPEM, pk, err := SelfSign(names, cn)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	pkPEM, err := PEMEncode(x509.MarshalPKCS1PrivateKey(pk), "RSA PRIVATE KEY")
+	pkPEM := PEMEncode(x509.MarshalPKCS1PrivateKey(pk), "RSA PRIVATE KEY")
+	serverCert, err := tls.X509KeyPair(certPEM, pkPEM)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	serverCert, err := tls.X509KeyPair(cert, pkPEM)
-	if err != nil {
-		return nil, nil, err
-	}
-	return &serverCert, ca, nil
+	return &serverCert, nil
 }

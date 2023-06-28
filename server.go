@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/0x656b694d/hop/tlstools"
 	"github.com/0x656b694d/hop/tools"
 	log "github.com/sirupsen/logrus"
 )
@@ -26,11 +25,13 @@ type hopHandler struct {
 
 func getServer(host string, port uint16) *http.Server {
 	return &http.Server{
-		Addr:           net.JoinHostPort(host, strconv.FormatUint(uint64(port), 10)),
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		MaxHeaderBytes: 1 << 20,
-		ErrorLog:       stdlog.New(log.StandardLogger().Writer(), "http: ", 0),
+		Addr:              net.JoinHostPort(host, strconv.FormatUint(uint64(port), 10)),
+		ReadTimeout:       10 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		ReadHeaderTimeout: 10 * time.Minute,
+		IdleTimeout:       10 * time.Minute,
+		MaxHeaderBytes:    1 << 20,
+		ErrorLog:          stdlog.New(log.StandardLogger().Writer(), "http: ", 0),
 	}
 }
 
@@ -51,28 +52,11 @@ func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog
 	stls := getServer(cfg.localhost, uint16(cfg.port_https))
 	stls.Handler = &hopHandler{cfg, client, slog}
 
-	var err error
-	var serverCert *tls.Certificate
-	if cfg.cacert != "" && cfg.cakey != "" {
-		serverCert, err = tlstools.SignWith(cfg.serviceNames, cfg.cacert, cfg.cakey)
-		if err != nil {
-			return nil, fmt.Errorf("couldn't sign with provided files: %w", err)
-		}
-	} else if cfg.key == "" && cfg.certificate == "" {
-		var ca *x509.Certificate
-		serverCert, ca, err = tlstools.GetSelfSigned(cfg.serviceNames)
-		if err != nil {
-			return nil, fmt.Errorf("couldn't self-sign server certificate: %w", err)
-		}
-		if ca != nil {
-			pool.AddCert(ca)
-		}
-	}
+	stls.ErrorLog = stdlog.New(log.StandardLogger().Writer(), "tls", 0)
 	stls.TLSConfig = &tls.Config{
-		ClientCAs: pool,
-	}
-	if serverCert != nil {
-		stls.TLSConfig.Certificates = []tls.Certificate{*serverCert}
+		ClientCAs:    pool,
+		ClientAuth:   tls.VerifyClientCertIfGiven,
+		Certificates: []tls.Certificate{*cfg.getCert("Hop server")},
 	}
 
 	go func() {

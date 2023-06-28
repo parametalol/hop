@@ -35,19 +35,23 @@ type hopClient struct {
 
 func (cfg *config) getClient(roots *x509.CertPool) (*hopClient, error) {
 	transport := &http.Transport{
-		MaxIdleConns:    10,
-		IdleConnTimeout: 30 * time.Second,
+		MaxIdleConns:        10,
+		IdleConnTimeout:     10 * time.Minute,
+		TLSHandshakeTimeout: 10 * time.Minute,
 		TLSClientConfig: &tls.Config{
 			RootCAs:            roots,
 			InsecureSkipVerify: cfg.insecure,
 		},
 	}
-	if len(cfg.certificate) != 0 && len(cfg.key) != 0 {
+	if cfg.certificate != "" && cfg.key != "" {
 		tlsCert, err := tls.LoadX509KeyPair(cfg.certificate, cfg.key)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client certificate or private key: %s", err)
 		}
 		transport.TLSClientConfig.Certificates = []tls.Certificate{tlsCert}
+	} else {
+		log.Debug("adding client certificate for mTLS")
+		transport.TLSClientConfig.Certificates = []tls.Certificate{*cfg.getCert("Hop client")}
 	}
 	if cfg.proxy_tunneling {
 		transport.Proxy = proxy
@@ -98,19 +102,19 @@ func newReqParams() *reqParams {
 	}
 }
 
-func buildRequest(url *url.URL, method string, headers *map[string]string, size int) (*http.Request, error) {
-	log.Infof("Call %s, sending %d bytes and %v", url, size, *headers)
+func BuildRequest(url *url.URL, method string, headers map[string]string, size int) (*http.Request, error) {
+	log.Infof("Call %s, sending %d bytes and %v", url, size, headers)
 	payload := bytes.Repeat([]byte{'X'}, size)
 
 	if method == "" {
-		method = "GET"
+		method = http.MethodGet
 	}
 	req, err := http.NewRequest(method, url.String(), bytes.NewReader(payload))
 	if err != nil || req == nil {
 		return nil, err
 	}
 
-	for h, v := range *headers {
+	for h, v := range headers {
 		if strings.ToLower(h) == "host" {
 			req.Host = v
 		} else {
@@ -124,7 +128,7 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 	clog := &commandLog{Command: "hop"}
 	r := &clog.Output
 	u := params.url
-	clientReq, err := buildRequest(u, params.method, &params.headers, params.size)
+	clientReq, err := BuildRequest(u, params.method, params.headers, params.size)
 	if err != nil {
 		r.Appendf("Couldn't make %s: %s\n", u, err.Error())
 		return clog
@@ -160,18 +164,40 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 		r.Appendf("Couldn't call %s by some reason\n", u)
 		return clog
 	}
+	err = TreatResponse(clog, res, params, handler.cfg.insecure)
+
+	c := res.StatusCode
+
+	for _, h := range params.fheaders {
+		v := res.Header.Get(h)
+		r.Appendf("Back forwarding header %s: %s", h, v)
+		if len(v) > 0 {
+			params.rheaders[h] = v
+		}
+	}
+	if c == 0 && err != nil {
+		c = 500
+	}
+	params.code.Set(c)
+	return clog
+}
+
+func TreatResponse(clog *commandLog, res *http.Response, params *reqParams, insecure bool) error {
+	r := &clog.Output
+	var err error
 	defer res.Body.Close()
 	if params.tlsInfo {
 		r.Append("Response TLS info:")
-		tlstools.AppendTLSInfo(r, res.TLS, handler.cfg.insecure)
+		tlstools.AppendTLSInfo(r, res.TLS, insecure)
 	}
 
 	if params.showHeaders {
 		var dump []byte
 		dump, err = httputil.DumpResponse(res, false)
+		r.Append("Response headers:")
 		if err == nil {
 			for _, h := range strings.Split(string(dump), "\r\n") {
-				r.Append(h)
+				r.Append("  ", h)
 			}
 		} else {
 			r.Appendln(err.Error())
@@ -191,19 +217,5 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 			r.Appendf("failed to read response body: %s", err)
 		}
 	}
-
-	c := res.StatusCode
-
-	for _, h := range params.fheaders {
-		v := res.Header.Get(h)
-		r.Appendf("Back forwarding header %s: %s", h, v)
-		if len(v) > 0 {
-			params.rheaders[h] = v
-		}
-	}
-	if c == 0 && err != nil {
-		c = 500
-	}
-	params.code.Set(c)
-	return clog
+	return err
 }
