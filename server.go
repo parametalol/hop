@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/0x656b694d/hop/data"
 	"github.com/0x656b694d/hop/tools"
 	log "github.com/sirupsen/logrus"
 )
@@ -20,7 +21,7 @@ type hopHandler struct {
 	cfg    *config
 	client *hopClient
 
-	log *serverLog
+	log *data.ServerLog
 }
 
 func getServer(host string, port uint16) *http.Server {
@@ -35,7 +36,7 @@ func getServer(host string, port uint16) *http.Server {
 	}
 }
 
-func (cfg *config) startHttpServer(client *hopClient, slog *serverLog, quit chan<- int) *http.Server {
+func (cfg *config) startHttpServer(client *hopClient, slog *data.ServerLog, quit chan<- int) *http.Server {
 	s := getServer(cfg.localhost, uint16(cfg.port_http))
 	s.Handler = &hopHandler{cfg, client, slog}
 
@@ -48,7 +49,7 @@ func (cfg *config) startHttpServer(client *hopClient, slog *serverLog, quit chan
 	return s
 }
 
-func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog *serverLog, quit chan<- int) (*http.Server, error) {
+func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog *data.ServerLog, quit chan<- int) (*http.Server, error) {
 	stls := getServer(cfg.localhost, uint16(cfg.port_https))
 	stls.Handler = &hopHandler{cfg, client, slog}
 
@@ -69,6 +70,10 @@ func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog
 }
 
 func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.Header.Get("Accept") == "text/seqdiag" {
+		handler.cfg.seqdiag = true
+	}
+
 	if handler.cfg.verbose {
 		dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
 		if err == nil {
@@ -80,21 +85,21 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	slog := *handler.log
 
-	slog.Request = &requestLog{
+	slog.Request = &data.RequestLog{
 		Path:   req.URL.RawPath,
 		Method: req.Method,
 		From:   req.RemoteAddr,
 		Size:   req.ContentLength,
 	}
 
-	slog.Request.Process = make([]*commandLog, 0)
+	slog.Request.Process = make([]*data.CommandLog, 0)
 
 	rp, err := makeReq(slog.Request, req)
 	w.Header().Add("Server", "hop")
 	if err != nil {
 		w.WriteHeader(500)
 		slog.Request.Process = append(slog.Request.Process,
-			&commandLog{
+			&data.CommandLog{
 				Code:   500,
 				Output: tools.ArrLog{fmt.Sprintf("Bad command: %s", err)},
 			},
@@ -114,7 +119,9 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	b, err := json.MarshalIndent(slog, "", "  ")
 	if err != nil {
 		log.Error("Error marshalling response: ", err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Write(b)
 		log.Debug(string(b))
 	}

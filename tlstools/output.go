@@ -32,7 +32,7 @@ func AppendTLSInfo(r *tools.ArrLog, t *tls.ConnectionState, insecure bool) {
 	)
 
 	if len(t.PeerCertificates) > 0 {
-		r.Append("Peer certificates:")
+		r.Append("=== Peer certificates ===")
 		for i, ps := range t.PeerCertificates {
 			r.Appendf("%d.", i+1)
 			PrintCert(r, ps)
@@ -46,7 +46,7 @@ func AppendTLSInfo(r *tools.ArrLog, t *tls.ConnectionState, insecure bool) {
 			r.Appendf("Empty verified chain")
 		}
 	} else {
-		r.Append("Verified chain:")
+		r.Append("=== Verified chain ===")
 		for _, chain := range t.VerifiedChains {
 			for _, x := range chain {
 				if x == nil {

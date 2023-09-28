@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0x656b694d/hop/data"
 	"github.com/0x656b694d/hop/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,7 +74,7 @@ func TestReq(t *testing.T) {
 
 	for test, c := range cases {
 		t.Run(test, func(t *testing.T) {
-			var r requestLog
+			var r data.RequestLog
 			u, err := url.Parse("http://testhost/" + c.command)
 			assert.NoError(t, err)
 			rp, err := makeReq(&r, &http.Request{URL: u})

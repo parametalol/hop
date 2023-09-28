@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0x656b694d/hop/data"
 	"github.com/0x656b694d/hop/tlstools"
 	"github.com/0x656b694d/hop/tools"
 	log "github.com/sirupsen/logrus"
@@ -126,8 +127,8 @@ func BuildRequest(url *url.URL, method string, headers map[string]string, size i
 	return req, err
 }
 
-func (handler *hopHandler) hop(params *reqParams) *commandLog {
-	clog := &commandLog{Command: "hop"}
+func (handler *hopHandler) hop(params *reqParams) *data.CommandLog {
+	clog := &data.CommandLog{Command: "hop"}
 	r := &clog.Output
 	u := params.url
 	clientReq, err := BuildRequest(u, params.method, params.headers, params.size)
@@ -184,22 +185,24 @@ func (handler *hopHandler) hop(params *reqParams) *commandLog {
 	return clog
 }
 
-func TreatResponse(clog *commandLog, res *http.Response, params *reqParams, insecure bool) error {
+func TreatResponse(clog *data.CommandLog, res *http.Response, params *reqParams, insecure bool) error {
 	r := &clog.Output
 	var err error
 	defer res.Body.Close()
 	if params.tlsInfo {
-		r.Append("Response TLS info:")
+		r.Append("== Response TLS info ==")
 		tlstools.AppendTLSInfo(r, res.TLS, insecure)
 	}
 
 	if params.showHeaders {
 		var dump []byte
 		dump, err = httputil.DumpResponse(res, false)
-		r.Append("Response headers:")
+		r.Append("== Response headers ==")
 		if err == nil {
 			for _, h := range strings.Split(string(dump), "\r\n") {
-				r.Append("  ", h)
+				if h != "" {
+					r.Append("  " + h)
+				}
 			}
 		} else {
 			r.Appendln(err.Error())

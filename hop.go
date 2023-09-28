@@ -11,6 +11,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/0x656b694d/hop/data"
+	"github.com/0x656b694d/hop/seqdiag"
 	"github.com/0x656b694d/hop/tlstools"
 	log "github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
@@ -63,6 +65,7 @@ type config struct {
 	key             string
 	localhost       string
 	serviceNames    []string
+	seqdiag         bool
 }
 
 func getConfig() *config {
@@ -90,6 +93,7 @@ func getConfig() *config {
 	flag.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
 	flag.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
 	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
+	flag.BoolVarP(&cfg.seqdiag, "seqdiag", "", false, "sequence diagram output")
 
 	flag.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
 	flag.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
@@ -158,21 +162,26 @@ func main() {
 			if res, err := client.Do(req); err != nil {
 				log.Error(err)
 			} else {
-				clog := commandLog{}
+				clog := data.CommandLog{}
 				if err := TreatResponse(&clog, res, params, cfg.insecure); err != nil {
 					log.Error(err)
 				}
-				fmt.Println("Command output:")
+				fmt.Println("= Command output =")
 				for _, line := range clog.Output {
 					fmt.Println(line)
 				}
-				fmt.Println("Response:")
+				fmt.Println("== Response ==")
 				if clog.Response != nil {
-					b, err := json.MarshalIndent(clog.Response, "", "  ")
-					if err != nil {
-						log.Error(err)
+					if cfg.seqdiag {
+						d, _ := seqdiag.Translate(clog.Response)
+						fmt.Println(d)
 					} else {
-						fmt.Println(string(b))
+						b, err := json.MarshalIndent(clog.Response, "", "  ")
+						if err != nil {
+							log.Error(err)
+						} else {
+							fmt.Println(string(b))
+						}
 					}
 				}
 			}
@@ -181,7 +190,7 @@ func main() {
 	}
 
 	hn, _ := os.Hostname()
-	slog := &serverLog{
+	slog := &data.ServerLog{
 		Server: hn,
 		Iface:  cfg.localhost,
 		Port:   uint16(cfg.port_http),

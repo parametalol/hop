@@ -1,5 +1,5 @@
 ---
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: "hop-deployment"
@@ -15,47 +15,42 @@ spec:
   template:
     metadata:
       labels:
-        app: hop
+        app: "hop"
     spec:
-      volumes:
-      - name: hop-tls
-        secret:
-          secretName: hop-tls
       containers:
       - image: smartptr/hop:latest
         name: "hop"
         command:
-        - /main
+        - /hop
         args:
-        - "--cacert"
-        - /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-        - "--cert"
-        - /etc/tls/private/tls.crt
-        - "--key"
-        - /etc/tls/private/tls.key
         - "--interface"
         - 0.0.0.0
-        - "--port_http"
+        - "--port-http"
         - "8000"
-        - "--port_https"
+        - "--port-https"
         - "8443"
-        - "--port_metrics"
-        - "8080"
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        - containerPort: 8443
+          name: https
+          protocol: TCP
         volumeMounts:
         - name: "hop-tls"
           mountPath: "/etc/tls/private"
           readOnly: true
+      volumes:
+      - name: "hop-tls"
+        secret:
+          secretName: hop-tls
+          optional: true
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    prometheus.io/scrape: "true"
-    prometheus.io/scheme: http
-    prometheus.io/port: "8080"
   labels:
     app: hop
-    name: "hop"
   name: "hop"
 spec:
   ports:
@@ -67,10 +62,6 @@ spec:
     name: https
     protocol: TCP
     targetPort: 8443
-  - port: 8080
-    name: prometheus
-    protocol: TCP
-    targetPort: 8080
   selector:
     app: "hop"
   sessionAffinity: None
