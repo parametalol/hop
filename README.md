@@ -5,13 +5,16 @@ A stupid web service which can do stupid things told by the url.
 ## Usage
 
 ```console
-$ hop --help
+sh$ hop --help
 ...
 
-$ PORT=8000 hop
-Serving on 8000
+sh$ hop --port-http 8080 --port-https 8443
+INFO[0000] Serving HTTP on 0.0.0.0:8080
+INFO[0002] Serving HTTPS on 0.0.0.0:8443
+```
 
-$ curl box1:8000/-wait:1000/box2:8000/-rheader:a=b
+```console
+sh$ curl box1:8080/-wait:1000/box2:8000/-rheader:a=b
 | I am box1, will do /-wait:1000/box2:8000/-rheader:a=b
 | Waited for 1000 ms
 | Called http://box2:8000/-rheader:a=b with status 200 OK
@@ -21,10 +24,26 @@ $ curl box1:8000/-wait:1000/box2:8000/-rheader:a=b
 | . 
 ```
 
+## Build
+
+### Podman
+
+```console
+sh$ cd hop
+sh$ podman build -v "$PWD":/build --security-opt label=disabled -t hop:local .
+sh$ podman run --rm -p 8080:8080 hop:local
+```
+
+### Go
+
+```console
+go build -o hop ./main
+```
+
 ## Supported commands
 
 ```console
-$ curl hop/-help
+sh$ curl hop/-help | jq -rj '.request.process[0].output | join("\n")'
 -info         - return some info about the request
 -rheader:H=V  - add header H: V to the reponse
 -code:N       - responde with HTTP code N
