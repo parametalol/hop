@@ -4,7 +4,7 @@ FROM golang:1.23 as builder
 ENV CGO_ENABLED=0
 ENV GOOS=linux
 WORKDIR /build
-RUN go build -a -installsuffix cgo -o /hop ./main && /hop --help
+RUN go build -a -installsuffix cgo -o /hop ./main
 
 FROM scratch
 
