@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/parametalol/hop/data"
+	"github.com/parametalol/hop/pkg/common"
 	"github.com/parametalol/hop/pkg/tools"
 	log "github.com/sirupsen/logrus"
 )
@@ -21,7 +21,7 @@ type hopHandler struct {
 	cfg    *config
 	client *hopClient
 
-	log *data.ServerLog
+	log *common.ServerLog
 }
 
 func getServer(host string, port uint16) *http.Server {
@@ -36,7 +36,7 @@ func getServer(host string, port uint16) *http.Server {
 	}
 }
 
-func (cfg *config) startHttpServer(client *hopClient, slog *data.ServerLog, quit chan<- int) *http.Server {
+func (cfg *config) startHttpServer(client *hopClient, slog *common.ServerLog, quit chan<- int) *http.Server {
 	s := getServer(cfg.localhost, uint16(cfg.port_http))
 	s.Handler = &hopHandler{cfg, client, slog}
 
@@ -49,7 +49,7 @@ func (cfg *config) startHttpServer(client *hopClient, slog *data.ServerLog, quit
 	return s
 }
 
-func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog *data.ServerLog, quit chan<- int) (*http.Server, error) {
+func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog *common.ServerLog, quit chan<- int) (*http.Server, error) {
 	stls := getServer(cfg.localhost, uint16(cfg.port_https))
 	stls.Handler = &hopHandler{cfg, client, slog}
 
@@ -85,21 +85,21 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	slog := *handler.log
 
-	slog.Request = &data.RequestLog{
+	slog.Request = &common.RequestLog{
 		Path:   req.URL.RawPath,
 		Method: req.Method,
 		From:   req.RemoteAddr,
 		Size:   req.ContentLength,
 	}
 
-	slog.Request.Process = make([]*data.CommandLog, 0)
+	slog.Request.Process = make([]*common.CommandLog, 0)
 
 	rp, err := makeReq(slog.Request, req)
 	w.Header().Add("Server", "hop")
 	if err != nil {
 		w.WriteHeader(500)
 		slog.Request.Process = append(slog.Request.Process,
-			&data.CommandLog{
+			&common.CommandLog{
 				Code:   500,
 				Output: tools.ArrLog{fmt.Sprintf("Bad command: %s", err)},
 			},

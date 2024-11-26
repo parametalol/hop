@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/parametalol/hop/data"
+	"github.com/parametalol/hop/pkg/common"
 	"github.com/parametalol/hop/pkg/tlstools"
 	"github.com/parametalol/hop/pkg/tools"
 )
@@ -20,7 +20,7 @@ type cmdContext struct {
 	skip, not bool
 }
 
-func makeReq(rlog *data.RequestLog, req *http.Request) (*reqParams, error) {
+func makeReq(rlog *common.RequestLog, req *http.Request) (*reqParams, error) {
 
 	nextCommand, path, err := tools.GetFirstCommand(req.URL)
 	if err != nil {
@@ -30,7 +30,7 @@ func makeReq(rlog *data.RequestLog, req *http.Request) (*reqParams, error) {
 	rp := newReqParams()
 	ctx := &cmdContext{}
 	for strings.HasPrefix(nextCommand, "-") {
-		clog := &data.CommandLog{
+		clog := &common.CommandLog{
 			Command: nextCommand,
 		}
 		rlog.Process = append(rlog.Process, clog)

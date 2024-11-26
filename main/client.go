@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/parametalol/hop/data"
+	"github.com/parametalol/hop/pkg/common"
 	"github.com/parametalol/hop/pkg/tlstools"
 	"github.com/parametalol/hop/pkg/tools"
 	log "github.com/sirupsen/logrus"
@@ -127,8 +127,8 @@ func BuildRequest(url *url.URL, method string, headers map[string]string, size i
 	return req, err
 }
 
-func (handler *hopHandler) hop(params *reqParams) *data.CommandLog {
-	clog := &data.CommandLog{Command: "hop"}
+func (handler *hopHandler) hop(params *reqParams) *common.CommandLog {
+	clog := &common.CommandLog{Command: "hop"}
 	r := &clog.Output
 	u := params.url
 	clientReq, err := BuildRequest(u, params.method, params.headers, params.size)
@@ -181,7 +181,7 @@ func (handler *hopHandler) hop(params *reqParams) *data.CommandLog {
 	return clog
 }
 
-func TreatResponse(clog *data.CommandLog, res *http.Response, params *reqParams, insecure bool) error {
+func TreatResponse(clog *common.CommandLog, res *http.Response, params *reqParams, insecure bool) error {
 	r := &clog.Output
 	var err error
 	defer res.Body.Close()

@@ -3,19 +3,19 @@ package seqdiag
 import (
 	"testing"
 
-	"github.com/parametalol/hop/data"
+	"github.com/parametalol/hop/pkg/common"
 	"github.com/parametalol/hop/pkg/tools"
 	"github.com/stretchr/testify/assert"
 )
 
 func Test_diagram_translate(t *testing.T) {
 	tests := map[string]struct {
-		sr *data.ServerLog
+		sr *common.ServerLog
 
 		expected *diagram
 	}{
 		"one participant": {
-			sr: &data.ServerLog{
+			sr: &common.ServerLog{
 				Server: "test",
 			},
 			expected: &diagram{
@@ -23,14 +23,14 @@ func Test_diagram_translate(t *testing.T) {
 			},
 		},
 		"one command": {
-			sr: &data.ServerLog{
+			sr: &common.ServerLog{
 				Server: "test",
-				Request: &data.RequestLog{
+				Request: &common.RequestLog{
 					Method: "GET",
 					Path:   "/-cmd",
 					From:   "localhost",
 					Size:   12,
-					Process: []*data.CommandLog{
+					Process: []*common.CommandLog{
 						{Command: "-cmd", Output: tools.ArrLog{"line1", "line2"}},
 					},
 				},

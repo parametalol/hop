@@ -1,4 +1,4 @@
-package data
+package common
 
 import "github.com/parametalol/hop/pkg/tools"
 

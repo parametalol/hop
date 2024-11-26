@@ -12,7 +12,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/parametalol/hop/data"
+	"github.com/parametalol/hop/pkg/common"
 	"github.com/parametalol/hop/pkg/seqdiag"
 	"github.com/parametalol/hop/pkg/tlstools"
 	log "github.com/sirupsen/logrus"
@@ -173,7 +173,7 @@ func main() {
 			if res, err := client.Do(req); err != nil {
 				log.Error(err)
 			} else {
-				clog := data.CommandLog{}
+				clog := common.CommandLog{}
 				if err := TreatResponse(&clog, res, params, cfg.insecure); err != nil {
 					log.Error(err)
 				}
@@ -201,7 +201,7 @@ func main() {
 	}
 
 	hn, _ := os.Hostname()
-	slog := &data.ServerLog{
+	slog := &common.ServerLog{
 		Server: hn,
 		Iface:  cfg.localhost,
 		Port:   uint16(cfg.port_http),

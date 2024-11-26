@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/parametalol/hop/data"
+	"github.com/parametalol/hop/pkg/common"
 )
 
 type diagram struct {
@@ -12,7 +12,7 @@ type diagram struct {
 	lines        []string
 }
 
-func Translate(sr *data.ServerLog) (string, error) {
+func Translate(sr *common.ServerLog) (string, error) {
 	if sr == nil {
 		return "", nil
 	}
@@ -28,7 +28,7 @@ func Translate(sr *data.ServerLog) (string, error) {
 	return strings.Join(output, "\n"), nil
 }
 
-func (d *diagram) translate(sr *data.ServerLog) {
+func (d *diagram) translate(sr *common.ServerLog) {
 	srv := sr.Server
 
 	d.participants = append(d.participants, srv)
