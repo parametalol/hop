@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -87,33 +88,43 @@ func getConfig() *config {
 
 	cfg := &config{}
 
-	flag.BoolVarP(&cfg.verbose, "verbose", "v", false, "verbose output")
-	flag.BoolVarP(&cfg.debug, "debug", "", false, "debug output")
-	flag.BoolVarP(&cfg.static_ca, "static-ca", "", true, "use built-in static CA")
-	flag.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
-	flag.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
-	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
-	flag.BoolVarP(&cfg.seqdiag, "seqdiag", "", false, "sequence diagram output")
+	fs := flag.NewFlagSet("hop", flag.ContinueOnError)
+	fs.BoolVarP(&cfg.verbose, "verbose", "v", false, "verbose output")
+	fs.BoolVarP(&cfg.debug, "debug", "", false, "debug output")
+	fs.BoolVarP(&cfg.static_ca, "static-ca", "", true, "use built-in static CA")
+	fs.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
+	fs.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
+	fs.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
+	fs.BoolVarP(&cfg.seqdiag, "seqdiag", "", false, "sequence diagram output")
 
-	flag.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
-	flag.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
-	flag.StringVarP(&cfg.https_proxy, "https-proxy", "", os.Getenv("https_proxy"), "HTTPS proxy")
-	flag.BoolVarP(&cfg.proxy_tunneling, "proxy-tunneling", "", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
-	flag.StringArrayVarP(&cfg.cacerts, "cacerts", "", nil, "trusted CA certificate PEM files")
-	flag.StringVarP(&cfg.cacert, "cacert", "", "", "CA certificate to sign server and client certificates")
-	flag.StringVarP(&cfg.cakey, "cakey", "", "", "CA certificate private key PEM file")
-	flag.StringVarP(&cfg.certificate, "cert", "", "", "server certificate PEM file")
-	flag.StringVarP(&cfg.key, "key", "", "", "server private key PEM file")
-	flag.BoolVarP(&cfg.mtls, "mtls", "m", false, "set client certificate (same as cert)")
-	flag.StringArrayVarP(&cfg.serviceNames, "name", "n", []string{"localhost"}, "the service DNS name(s) for the certificate")
+	fs.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
+	fs.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
+	fs.StringVarP(&cfg.https_proxy, "https-proxy", "", os.Getenv("https_proxy"), "HTTPS proxy")
+	fs.BoolVarP(&cfg.proxy_tunneling, "proxy-tunneling", "", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
+	fs.StringArrayVarP(&cfg.cacerts, "cacerts", "", nil, "trusted CA certificate PEM files")
+	fs.StringVarP(&cfg.cacert, "cacert", "", "", "CA certificate to sign server and client certificates")
+	fs.StringVarP(&cfg.cakey, "cakey", "", "", "CA certificate private key PEM file")
+	fs.StringVarP(&cfg.certificate, "cert", "", "", "server certificate PEM file")
+	fs.StringVarP(&cfg.key, "key", "", "", "server private key PEM file")
+	fs.BoolVarP(&cfg.mtls, "mtls", "m", false, "set client certificate (same as cert)")
+	fs.StringArrayVarP(&cfg.serviceNames, "name", "n", []string{"localhost"}, "the service DNS name(s) for the certificate")
 
-	flag.Parse()
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of hop:\n")
+		flag.PrintDefaults()
+	}
+	if errors.Is(fs.Parse(os.Args), flag.ErrHelp) {
+		return nil
+	}
 	return cfg
 }
 
 func main() {
 
 	cfg := getConfig()
+	if cfg == nil {
+		log.Exit(0)
+	}
 
 	if cfg.verbose {
 		log.SetLevel(log.InfoLevel)
