@@ -1,10 +1,14 @@
-FROM go:1.22 as builder
+FROM golang:1.23 as builder
 
+# podman build -v $PWD:/build --security-opt label=disabled -t hop:latest .
 ENV CGO_ENABLED=0
 ENV GOOS=linux
-RUN go build -a -installsuffix cgo -o hop .
+WORKDIR /build
+RUN go build -a -installsuffix cgo -o /hop ./main && /hop --help
 
 FROM scratch
 
-COPY --from=builder hop /
-CMD ["/hop"]
+ENV PORT=8080
+ENV PORT_HTTPS=8443
+COPY --from=builder /hop /
+ENTRYPOINT [ "/hop"]
