@@ -18,33 +18,33 @@ spec:
         app: "hop"
     spec:
       containers:
-      - image: smartptr/hop:latest
-        name: "hop"
-        command:
-        - /hop
-        args:
-        - "--interface"
-        - 0.0.0.0
-        - "--port-http"
-        - "8000"
-        - "--port-https"
-        - "8443"
-        ports:
-        - containerPort: 8000
-          name: http
-          protocol: TCP
-        - containerPort: 8443
-          name: https
-          protocol: TCP
-        volumeMounts:
-        - name: "hop-tls"
-          mountPath: "/etc/tls/private"
-          readOnly: true
+        - image: smartptr/hop:latest
+          name: "hop"
+          command:
+            - /hop
+          args:
+            - "--interface"
+            - 0.0.0.0
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 8443
+              name: https
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              memory: 2M
+          volumeMounts:
+            - name: "hop-tls"
+              mountPath: "/etc/tls/private"
+              readOnly: true
       volumes:
-      - name: "hop-tls"
-        secret:
-          secretName: hop-tls
-          optional: true
+        - name: "hop-tls"
+          secret:
+            secretName: hop-tls
+            optional: true
 ---
 apiVersion: v1
 kind: Service
@@ -54,16 +54,15 @@ metadata:
   name: "hop"
 spec:
   ports:
-  - port: 80
-    name: http
-    protocol: TCP
-    targetPort: 8000
-  - port: 443
-    name: https
-    protocol: TCP
-    targetPort: 8443
+    - port: 80
+      name: http
+      protocol: TCP
+      targetPort: 8080
+    - port: 443
+      name: https
+      protocol: TCP
+      targetPort: 8443
   selector:
     app: "hop"
   sessionAffinity: None
   type: ClusterIP
-
