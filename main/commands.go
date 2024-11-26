@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0x656b694d/hop/data"
-	"github.com/0x656b694d/hop/pkg/tlstools"
-	"github.com/0x656b694d/hop/pkg/tools"
+	"github.com/parametalol/hop/data"
+	"github.com/parametalol/hop/pkg/tlstools"
+	"github.com/parametalol/hop/pkg/tools"
 )
 
 type cmdContext struct {

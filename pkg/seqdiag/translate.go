@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/0x656b694d/hop/data"
+	"github.com/parametalol/hop/data"
 )
 
 type diagram struct {

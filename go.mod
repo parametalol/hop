@@ -1,6 +1,6 @@
-module github.com/0x656b694d/hop
+module github.com/parametalol/hop
 
-go 1.22
+go 1.23
 
 require (
 	github.com/sirupsen/logrus v1.9.3

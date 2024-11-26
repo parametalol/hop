@@ -11,9 +11,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/0x656b694d/hop/data"
-	"github.com/0x656b694d/hop/pkg/seqdiag"
-	"github.com/0x656b694d/hop/pkg/tlstools"
+	"github.com/parametalol/hop/data"
+	"github.com/parametalol/hop/pkg/seqdiag"
+	"github.com/parametalol/hop/pkg/tlstools"
 	log "github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
 )

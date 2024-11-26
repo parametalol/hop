@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 
-	"github.com/0x656b694d/hop/pkg/tools"
+	"github.com/parametalol/hop/pkg/tools"
 )
 
 func PrintCert(r *tools.ArrLog, cert *x509.Certificate) {
