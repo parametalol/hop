@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/0x656b694d/hop/data"
-	"github.com/0x656b694d/hop/tools"
+	"github.com/0x656b694d/hop/pkg/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

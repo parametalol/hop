@@ -1,6 +1,6 @@
 package data
 
-import "github.com/0x656b694d/hop/tools"
+import "github.com/0x656b694d/hop/pkg/tools"
 
 type CommandLog struct {
 	Command  string       `json:"command,omitempty"`

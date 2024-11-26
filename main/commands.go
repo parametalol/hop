@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/0x656b694d/hop/data"
-	"github.com/0x656b694d/hop/tlstools"
-	"github.com/0x656b694d/hop/tools"
+	"github.com/0x656b694d/hop/pkg/tlstools"
+	"github.com/0x656b694d/hop/pkg/tools"
 )
 
 type cmdContext struct {

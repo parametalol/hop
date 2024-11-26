@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/0x656b694d/hop/data"
-	"github.com/0x656b694d/hop/tlstools"
-	"github.com/0x656b694d/hop/tools"
+	"github.com/0x656b694d/hop/pkg/tlstools"
+	"github.com/0x656b694d/hop/pkg/tools"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -154,19 +154,15 @@ func (handler *hopHandler) hop(params *reqParams) *data.CommandLog {
 	res, err := handler.client.callURL(clientReq, params.rtrip)
 	if err != nil {
 		log.Error(err)
-		r.Append(err.Error())
+		r.Appendf("Couldn't call %s: %s\n", u, err.Error())
+		return clog
+	}
+	if res == nil {
+		r.Appendf("Couldn't call %s by some reason\n", u)
 		return clog
 	}
 	clog.Code = uint(res.StatusCode)
 	clog.Url = u.String()
-
-	if err != nil {
-		r.Appendf("Couldn't call %s: %s\n", u, err.Error())
-		return clog
-	} else if res == nil {
-		r.Appendf("Couldn't call %s by some reason\n", u)
-		return clog
-	}
 	err = TreatResponse(clog, res, params, handler.cfg.insecure)
 
 	c := res.StatusCode

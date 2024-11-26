@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/0x656b694d/hop/data"
-	"github.com/0x656b694d/hop/tools"
+	"github.com/0x656b694d/hop/pkg/tools"
 	log "github.com/sirupsen/logrus"
 )
 
