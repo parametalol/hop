@@ -1,68 +1,67 @@
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: "hop-deployment"
-  labels:
-    app: "hop"
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: "hop"
-  strategy:
-    type: RollingUpdate
-  template:
-    metadata:
-      labels:
-        app: "hop"
-    spec:
-      containers:
-        - image: smartptr/hop:latest
-          name: "hop"
-          command:
-            - /hop
-          args:
-            - "--interface"
-            - 0.0.0.0
-          ports:
-            - containerPort: 8080
-              name: http
-              protocol: TCP
-            - containerPort: 8443
-              name: https
-              protocol: TCP
-          resources:
-            limits:
-              cpu: 200m
-              memory: 2M
-          volumeMounts:
-            - name: "hop-tls"
-              mountPath: "/etc/tls/private"
-              readOnly: true
-      volumes:
-        - name: "hop-tls"
-          secret:
-            secretName: hop-tls
-            optional: true
----
 apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app: hop
-  name: "hop"
-spec:
-  ports:
-    - port: 80
-      name: http
-      protocol: TCP
-      targetPort: 8080
-    - port: 443
-      name: https
-      protocol: TCP
-      targetPort: 8443
-  selector:
-    app: "hop"
-  sessionAffinity: None
-  type: ClusterIP
+kind: List
+items:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata: &metadata
+      name: &name hop1
+      annotations:
+        secretName: &secret hop1-tls
+      labels: &labels
+        app: *name
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          <<: *labels
+      strategy:
+        type: RollingUpdate
+      template:
+        metadata:
+          labels:
+            <<: *labels
+        spec:
+          containers:
+            - image: smartptr/hop:latest
+              name: *name
+              args:
+                - --verbose
+                - --insecure
+              ports:
+                - containerPort: 8080
+                  name: http
+                  protocol: TCP
+                - containerPort: 8443
+                  name: https
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: 200m
+                  memory: 50M
+              volumeMounts:
+                - name: tls
+                  mountPath: "/etc/tls/private"
+                  readOnly: true
+          volumes:
+            - name: tls
+              secret:
+                secretName: *secret
+                optional: true
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      <<: *metadata
+    spec:
+      ports:
+        - port: 80
+          name: http
+          protocol: TCP
+          targetPort: 8080
+        - port: 443
+          name: https
+          protocol: TCP
+          targetPort: 8443
+      selector:
+        <<: *labels
+      sessionAffinity: None
+      type: ClusterIP
