@@ -11,7 +11,6 @@ import (
 	"strconv"
 
 	"github.com/parametalol/hop/pkg/common"
-	"github.com/parametalol/hop/pkg/seqdiag"
 	"github.com/parametalol/hop/pkg/tlstools"
 	log "github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
@@ -62,7 +61,6 @@ type config struct {
 	key             string
 	localhost       string
 	serviceNames    []string
-	seqdiag         bool
 }
 
 func getConfig() (*config, []string) {
@@ -89,7 +87,6 @@ func getConfig() (*config, []string) {
 	flag.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
 	flag.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
 	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
-	flag.BoolVarP(&cfg.seqdiag, "seqdiag", "", false, "sequence diagram output")
 
 	flag.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
 	flag.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
@@ -203,30 +200,9 @@ func doHop(cfg *config, args []string) {
 	if err := treatResponse(&clog, res, params); err != nil {
 		log.Error(err)
 	}
-	if cfg.seqdiag {
-		fmt.Println("= Command output =")
-		for _, line := range clog.Output {
-			fmt.Println(line)
-		}
-		fmt.Println("== Response ==")
-		if clog.Response != nil {
-			if cfg.seqdiag {
-				d, _ := seqdiag.Translate(clog.Response)
-				fmt.Println(d)
-			} else {
-				b, err := json.MarshalIndent(clog.Response, "", "  ")
-				if err != nil {
-					log.Error(err)
-				} else {
-					fmt.Println(string(b))
-				}
-			}
-		}
-	} else {
-		e := json.NewEncoder(os.Stdout)
-		e.SetIndent("", "  ")
-		e.Encode(&clog)
-	}
+	e := json.NewEncoder(os.Stdout)
+	e.SetIndent("", "  ")
+	e.Encode(&clog)
 }
 
 func (cfg *config) getCert(cn string) *tls.Certificate {

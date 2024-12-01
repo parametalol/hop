@@ -66,10 +66,6 @@ func (cfg *config) startHttpsServer(quit chan<- int) (*http.Server, error) {
 }
 
 func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if req.Header.Get("Accept") == "text/seqdiag" {
-		handler.cfg.seqdiag = true
-	}
-
 	if handler.cfg.loglevel > 2 {
 		dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
 		if err == nil {
