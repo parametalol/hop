@@ -15,7 +15,7 @@ func wrapErr(err error, command string) error {
 	return fmt.Errorf("%s: %w", command, err)
 }
 
-func checkCommand(args, command string) error {
+func checkCommand(command, args string) error {
 	c, ok := help[command]
 	var err error
 	if !ok {

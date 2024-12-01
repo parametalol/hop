@@ -42,7 +42,7 @@ func TestReq(t *testing.T) {
 			err: errMissingArguments, commands: []string{"-code"}, logs: tools.ArrLog{},
 		},
 		"code abc": {command: "-code:abc",
-			err: strconv.ErrSyntax, commands: []string{"-code:abc"}, logs: tools.ArrLog{"Error execuing -code(abc): strconv.Atoi: parsing \"abc\": invalid syntax"},
+			err: strconv.ErrSyntax, commands: []string{"-code:abc"}, logs: tools.ArrLog{},
 		},
 		"size": {command: "-size:1",
 			commands: []string{"-size:1"}, logs: tools.ArrLog{"Will add 1 bytes to the following request"},
@@ -74,7 +74,9 @@ func TestReq(t *testing.T) {
 
 	for test, c := range cases {
 		t.Run(test, func(t *testing.T) {
-			var r common.RequestLog
+			r := common.ServerLog{
+				Request: &common.RequestLog{},
+			}
 			u, err := url.Parse("http://testhost/" + c.command)
 			assert.NoError(t, err)
 			rp, err := makeReq(&r, &http.Request{URL: u})
@@ -97,7 +99,7 @@ func TestReq(t *testing.T) {
 			}
 			output := tools.ArrLog{}
 			commands := []string{}
-			for _, c := range r.Process {
+			for _, c := range r.Request.Process {
 				commands = append(commands, c.Command)
 				output = append(output, c.Output...)
 			}
@@ -117,12 +119,10 @@ func TestReq(t *testing.T) {
 
 func TestSkipStep(t *testing.T) {
 	rp := newReqParams()
-	var r tools.ArrLog
-
 	ctx := &cmdContext{skip: true}
-	err := step(ctx, &r, &http.Request{}, rp, "-code", "500")
-	assert.NoError(t, err)
+	clog := step(ctx, &http.Request{}, rp, "-code", "500")
+	assert.Nil(t, clog.Error)
 	assert.Equal(t, 0, int(rp.code))
-	assert.Equal(t, "Skipping -code(500)", strings.Join(r, "\n"))
+	assert.Equal(t, "Skipping -code(500)", strings.Join(clog.Output, "\n"))
 	assert.Equal(t, false, ctx.skip)
 }

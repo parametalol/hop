@@ -3,23 +3,15 @@ package tlstools
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 
+	"github.com/parametalol/hop/pkg/common"
 	"github.com/parametalol/hop/pkg/tools"
 )
 
 func PrintCert(r *tools.ArrLog, cert *x509.Certificate) {
-	r.Appendf(" | Subject:              %s", cert.Subject.String())
-	r.Appendf(" | Issuer:               %s", cert.Issuer)
-	r.Appendf(" | Is CA:                %v", cert.IsCA)
-	r.Appendf(" | DNS Names:            %v", cert.DNSNames)
-	r.Appendf(" | URIs:                 %v", cert.URIs)
-	r.Appendf(" | IP Addresses:         %v", cert.IPAddresses)
-	r.Appendf(" | Email Addresses:      %v", cert.EmailAddresses)
-	r.Append(" | Validity:")
-	r.Appendf(" |   Not Before:         %v", cert.NotBefore)
-	r.Appendf(" |   Not After:          %v", cert.NotAfter)
-	r.Appendf(" | Signature Algorithm:  %s", cert.SignatureAlgorithm)
-	r.Appendf(" | Public Key Algorithm: %s", cert.PublicKeyAlgorithm)
+	c, _ := json.Marshal((*common.Certificate)(cert))
+	r.Append(string(c))
 }
 
 func AppendTLSInfo(r *tools.ArrLog, t *tls.ConnectionState, insecure bool) {

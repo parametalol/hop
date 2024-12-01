@@ -3,7 +3,7 @@ FROM golang:1.23 AS builder
 ENV CGO_ENABLED=0
 ENV GOOS=linux
 WORKDIR /build
-RUN --mount=type=bind,target=/build go build -a -installsuffix cgo -o /hop ./main
+RUN --mount=type=bind,target=/build go build -a -o /hop ./main
 
 FROM scratch
 

@@ -23,22 +23,11 @@ var (
 	pool *x509.CertPool
 )
 
-//go:embed ca.crt
-var caCRTfile string
-
-//go:embed ca.key
-var caPKfile string
-
-func Init(builtin_ca bool) {
+func Init() {
 	var err error
-	if builtin_ca {
-		capk, _ = x509.ParsePKCS1PrivateKey(PEMDecodeFirst([]byte(caPKfile)))
-		ca, _ = x509.ParseCertificate(PEMDecodeFirst([]byte(caCRTfile)))
-	} else {
-		ca, capk, err = genCA()
-		if err != nil {
-			log.Panic(err)
-		}
+	ca, capk, err = makeCA()
+	if err != nil {
+		log.Panic(err)
 	}
 	pool, err = x509.SystemCertPool()
 	if err != nil {
@@ -77,7 +66,7 @@ func addCA(cacertFile string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-func genCA() (*x509.Certificate, *rsa.PrivateKey, error) {
+func makeCA() (*x509.Certificate, *rsa.PrivateKey, error) {
 	name := pkix.Name{
 		CommonName: "Hop dynamic CA",
 	}
@@ -145,7 +134,7 @@ func GenCertTemplate(names []string, cn string) (*x509.Certificate, *rsa.Private
 	return serverCert, certPrivKey, nil
 }
 
-func Sign(certTemplate, parent *x509.Certificate, serviceCertPubKey *rsa.PublicKey, caPrivKey *rsa.PrivateKey) ([]byte, error) {
+func sign(certTemplate, parent *x509.Certificate, serviceCertPubKey *rsa.PublicKey, caPrivKey *rsa.PrivateKey) ([]byte, error) {
 	certBytes, err := x509.CreateCertificate(rand.Reader, certTemplate, parent, serviceCertPubKey, caPrivKey)
 	if err != nil {
 		return nil, fmt.Errorf("cannot sign server certificate: %w", err)
@@ -153,12 +142,12 @@ func Sign(certTemplate, parent *x509.Certificate, serviceCertPubKey *rsa.PublicK
 	return PEMEncode(certBytes, "CERTIFICATE"), nil
 }
 
-func SelfSign(names []string, cn string) ([]byte, *rsa.PrivateKey, error) {
+func selfSign(names []string, cn string) ([]byte, *rsa.PrivateKey, error) {
 	certTemplate, pk, err := GenCertTemplate(names, cn)
 	if err != nil {
 		return nil, nil, err
 	}
-	signedPEM, err := Sign(certTemplate, ca, &pk.PublicKey, capk)
+	signedPEM, err := sign(certTemplate, ca, &pk.PublicKey, capk)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -195,7 +184,7 @@ func SignWith(names []string, cn, cacertFile, cakeyFile string) (*tls.Certificat
 	if !ok {
 		return nil, fmt.Errorf("not an RSA private key in %s", cakeyFile)
 	}
-	signedPEM, err := Sign(certTemplate, cacert, &pk.PublicKey, rsaKey)
+	signedPEM, err := sign(certTemplate, cacert, &pk.PublicKey, rsaKey)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +196,7 @@ func SignWith(names []string, cn, cacertFile, cakeyFile string) (*tls.Certificat
 }
 
 func GetSelfSigned(names []string, cn string) (*tls.Certificate, error) {
-	certPEM, pk, err := SelfSign(names, cn)
+	certPEM, pk, err := selfSign(names, cn)
 	if err != nil {
 		return nil, err
 	}

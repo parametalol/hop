@@ -4,24 +4,21 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"fmt"
 	stdlog "log"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/parametalol/hop/pkg/common"
-	"github.com/parametalol/hop/pkg/tools"
 	log "github.com/sirupsen/logrus"
 )
 
 type hopHandler struct {
 	cfg    *config
 	client *hopClient
-
-	log *common.ServerLog
 }
 
 func getServer(host string, port uint16) *http.Server {
@@ -36,9 +33,9 @@ func getServer(host string, port uint16) *http.Server {
 	}
 }
 
-func (cfg *config) startHttpServer(client *hopClient, slog *common.ServerLog, quit chan<- int) *http.Server {
+func (cfg *config) startHttpServer(client *hopClient, quit chan<- int) *http.Server {
 	s := getServer(cfg.localhost, uint16(cfg.port_http))
-	s.Handler = &hopHandler{cfg, client, slog}
+	s.Handler = &hopHandler{cfg, client}
 
 	go func() {
 		log.Info("Serving HTTP on ", cfg.localhost, ":", cfg.port_http)
@@ -49,9 +46,9 @@ func (cfg *config) startHttpServer(client *hopClient, slog *common.ServerLog, qu
 	return s
 }
 
-func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, slog *common.ServerLog, quit chan<- int) (*http.Server, error) {
+func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, quit chan<- int) (*http.Server, error) {
 	stls := getServer(cfg.localhost, uint16(cfg.port_https))
-	stls.Handler = &hopHandler{cfg, client, slog}
+	stls.Handler = &hopHandler{cfg, client}
 
 	stls.ErrorLog = stdlog.New(log.StandardLogger().Writer(), "tls", 0)
 	stls.TLSConfig = &tls.Config{
@@ -83,40 +80,42 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	slog := *handler.log
-
-	slog.Request = &common.RequestLog{
-		Path:   req.URL.RawPath,
-		Method: req.Method,
-		From:   req.RemoteAddr,
-		Size:   req.ContentLength,
+	hn, _ := os.Hostname()
+	response := &common.ServerLog{
+		Server: hn,
+		Iface:  handler.cfg.localhost,
+		Port:   uint16(handler.cfg.port_http),
+		Ports:  uint16(handler.cfg.port_https),
+		Request: &common.RequestLog{
+			Path:    req.URL.RawPath,
+			Method:  req.Method,
+			From:    req.RemoteAddr,
+			Size:    req.ContentLength,
+			Process: []*common.CommandLog{},
+		},
 	}
 
-	slog.Request.Process = make([]*common.CommandLog, 0)
-
-	rp, err := makeReq(slog.Request, req)
+	rp, err := makeReq(response, req)
 	w.Header().Add("Server", "hop")
 	if err != nil {
-		w.WriteHeader(500)
-		slog.Request.Process = append(slog.Request.Process,
-			&common.CommandLog{
-				Code:   500,
-				Output: tools.ArrLog{fmt.Sprintf("Bad command: %s", err)},
-			},
-		)
+		if len(response.Request.Process) > 0 && response.Request.Process[len(response.Request.Process)-1].Error != nil {
+			w.WriteHeader(response.Request.Process[len(response.Request.Process)-1].Code)
+		} else {
+			w.WriteHeader(500)
+		}
 	}
 	if rp != nil {
 		if rp.url != nil {
 			log.Debug("sending request to ", rp.url)
 			clog := handler.hop(rp)
-			slog.Request.Process = append(slog.Request.Process, clog)
+			response.Request.Process = append(response.Request.Process, clog)
 		}
 		w.WriteHeader(int(rp.code.Set(200)))
 		for h, v := range rp.rheaders {
 			w.Header().Set(h, v)
 		}
 	}
-	b, err := json.MarshalIndent(slog, "", "  ")
+	b, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		log.Error("Error marshalling response: ", err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)

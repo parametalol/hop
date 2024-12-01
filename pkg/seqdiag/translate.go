@@ -46,8 +46,8 @@ func (d *diagram) translate(sr *common.ServerLog) {
 			if c.Url != "" {
 				d.lines = append(d.lines, fmt.Sprintf("%s->%s: Call %s", srv, srv, c.Url))
 			}
-			if c.Error != "" {
-				d.lines = append(d.lines, fmt.Sprintf("note over %s:\n%s\nend note", srv, c.Error))
+			if c.Error != nil {
+				d.lines = append(d.lines, fmt.Sprintf("note over %s:\n%s\nend note", srv, c.Error.Err.Error()))
 			}
 			if c.Response != nil {
 				d.translate(c.Response)

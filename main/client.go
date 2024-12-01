@@ -161,7 +161,7 @@ func (handler *hopHandler) hop(params *reqParams) *common.CommandLog {
 		r.Appendf("Couldn't call %s by some reason\n", u)
 		return clog
 	}
-	clog.Code = uint(res.StatusCode)
+	clog.Code = res.StatusCode
 	clog.Url = u.String()
 	err = TreatResponse(clog, res, params, handler.cfg.insecure)
 

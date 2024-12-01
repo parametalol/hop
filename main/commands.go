@@ -20,38 +20,47 @@ type cmdContext struct {
 	skip, not bool
 }
 
-func makeReq(rlog *common.RequestLog, req *http.Request) (*reqParams, error) {
+func makeCommandLog(command, args string) *common.CommandLog {
+	if args != "" {
+		command += ":" + args
+	}
+	return &common.CommandLog{
+		Command: command,
+	}
+}
 
-	nextCommand, path, err := tools.GetFirstCommand(req.URL)
+func execCommand(ctx *cmdContext, req *http.Request, rp *reqParams, cmd string) *common.CommandLog {
+	cmd, args := tools.SplitCommandArgs(cmd)
+	if err := checkCommand(cmd, args); err != nil {
+		clog := makeCommandLog(cmd, args)
+		clog.Err(err)
+		clog.Code = 400
+		return clog
+	}
+	return step(ctx, req, rp, cmd, args)
+}
+
+func makeReq(response *common.ServerLog, req *http.Request) (*reqParams, error) {
+	command, path, err := tools.GetFirstCommand(req.URL)
 	if err != nil {
 		return nil, err
 	}
-
 	rp := newReqParams()
 	ctx := &cmdContext{}
-	for strings.HasPrefix(nextCommand, "-") {
-		clog := &common.CommandLog{
-			Command: nextCommand,
+	for ; strings.HasPrefix(command, "-"); command, path = tools.Pop(path) {
+		clog := execCommand(ctx, req, rp, command)
+		response.Request.Process = append(response.Request.Process, clog)
+		if clog.Error != nil {
+			return nil, clog.Error.Err
 		}
-		rlog.Process = append(rlog.Process, clog)
-		r := &clog.Output
-		cmd, args := tools.SplitCommandArgs(nextCommand)
-		if err := checkCommand(args, cmd); err != nil {
-			return nil, err
-		}
-		if err := step(ctx, r, req, rp, cmd, args); err != nil {
-			r.Appendf("Error execuing %s(%s): %v", cmd, args, err)
-			return nil, err
-		}
-		nextCommand, path = tools.Pop(path)
 	}
-	if nextCommand != "" {
+	if command != "" {
 		if ctx.skip {
 			// r.appendf("Skipping call to %s", nextCommand)
 			return nil, nil
 		}
 		var err error
-		if rp.url, err = tools.BuildURL(nextCommand, path); err != nil {
+		if rp.url, err = tools.BuildURL(command, path); err != nil {
 			return nil, err
 		}
 	}
@@ -62,19 +71,21 @@ func q(c int) {
 	quit <- c
 }
 
-func step(ctx *cmdContext, r *tools.ArrLog, req *http.Request, rp *reqParams, command, args string) error {
-
+func step(ctx *cmdContext, req *http.Request, rp *reqParams, command, args string) *common.CommandLog {
+	result := makeCommandLog(command, args)
+	o := &result.Output
 	if ctx.skip {
-		r.Appendf("Skipping %s(%s)", command, args)
+		o.Appendf("Skipping %s(%s)", command, args)
 		ctx.skip = false
-		return nil
+		return result
 	}
+
 	switch command {
 	case "-help":
 		for k, v := range help {
-			r.Appendf("%-13s - %s", strings.Join([]string{k, v[0]}, ":"), v[1])
+			o.Appendf("%-13s - %s", strings.Join([]string{k, v[0]}, ":"), v[1])
 		}
-		r.Appendln("Examples:",
+		o.Appendln("Examples:",
 			"curl -H \"a: b\" hop1/-info",
 			"\tthis will call hop1 which will show some details of the request",
 			"curl -H \"a: b\" hop1/-fheader:a/hop2",
@@ -84,19 +95,19 @@ func step(ctx *cmdContext, r *tools.ArrLog, req *http.Request, rp *reqParams, co
 	case "-wait":
 		d, err := strconv.Atoi(args)
 		if err != nil {
-			return err
+			return result.Err(err)
 		}
 		time.Sleep(time.Duration(d) * time.Millisecond)
-		r.Appendf("Waited for %d ms", d)
+		o.Appendf("Waited for %d ms", d)
 	case "-info":
 		rp.showHeaders = true
 		dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
 		if err == nil {
 			for _, line := range strings.Split(string(dump), "\r\n") {
-				r.Appendf("%s", line)
+				o.Appendf("%s", line)
 			}
 		} else {
-			r.Appendf("Error: %s", err)
+			o.Appendf("Error: %s", err)
 		}
 	case "-method":
 		rp.method = args
@@ -104,64 +115,64 @@ func step(ctx *cmdContext, r *tools.ArrLog, req *http.Request, rp *reqParams, co
 		rp.rtrip = true
 	case "-tls":
 		rp.tlsInfo = true
-		r.Append("Server request TLS info:")
-		tlstools.AppendTLSInfo(r, req.TLS, false)
+		o.Append("Server request TLS info:")
+		tlstools.AppendTLSInfo(o, req.TLS, false)
 	case "-header", "-rheader":
 		hv := strings.SplitN(args, "=", 2)
 		if len(hv) != 2 {
-			return fmt.Errorf("missing header value")
+			return result.Err(fmt.Errorf("missing header value"))
 		}
 		value, err := url.PathUnescape(hv[1])
 		if err != nil {
-			return fmt.Errorf("bad value for header (%s: %s): %w", hv[0], hv[1], err)
+			return result.Err(fmt.Errorf("bad value for header (%s: %s): %w", hv[0], hv[1], err))
 		}
-		r.Appendf("Will add header %s: %s", hv[0], value)
+		o.Appendf("Will add header %s: %s", hv[0], value)
 		if command == "-header" {
 			rp.headers[hv[0]] = value
 		} else {
 			rp.rheaders[hv[0]] = value
 		}
 	case "-fheader":
-		r.Appendf("Will forward header %s: %s", args, req.Header.Get(args))
+		o.Appendf("Will forward header %s: %s", args, req.Header.Get(args))
 		rp.headers[args] = req.Header.Get(args)
 		rp.fheaders = append(rp.fheaders, args)
 	case "-code":
 		c, err := strconv.Atoi(args)
 		if err != nil {
-			return err
+			return result.Err(err)
 		}
 		rp.code.Set(c)
-		r.Appendf("Returning code %d", rp.code)
+		o.Appendf("Returning code %d", rp.code)
 	case "-rsize":
 		b, err := strconv.Atoi(args)
 		if err != nil {
-			return err
+			return result.Err(err)
 		}
-		r.Appendf("Appending %d bytes", b)
-		r.Appendln(strings.Repeat("X", b))
-		r.Appendln("\n")
+		o.Appendf("Appending %d bytes", b)
+		o.Appendln(strings.Repeat("X", b))
+		o.Appendln("\n")
 	case "-env":
-		r.Appendf("%s=%s", args, os.Getenv(args))
+		o.Appendf("%s=%s", args, os.Getenv(args))
 	case "-size":
 		b, err := strconv.Atoi(args)
 		if err != nil {
-			return err
+			return result.Err(err)
 		}
 		rp.size = b
-		r.Appendf("Will add %d bytes to the following request", rp.size)
+		o.Appendf("Will add %d bytes to the following request", rp.size)
 	case "-not":
 		ctx.not = !ctx.not
 	case "-on":
 		value, err := url.PathUnescape(args)
 		if err != nil {
-			return err
+			return result.Err(err)
 		}
 		hn, err := os.Hostname()
 		if err != nil {
-			r.Appendf("Cannot retrieve hostname %s: %v", command, err)
+			o.Appendf("Cannot retrieve hostname %s: %v", command, err)
 			ctx.skip = true
 		} else {
-			r.Appendf("Testing host %s for %s", hn, value)
+			o.Appendf("Testing host %s for %s", hn, value)
 			ctx.skip = !strings.Contains(hn, value)
 			if ctx.not {
 				ctx.skip = !ctx.skip
@@ -171,11 +182,11 @@ func step(ctx *cmdContext, r *tools.ArrLog, req *http.Request, rp *reqParams, co
 	case "-if":
 		hv := strings.SplitN(args, "=", 2)
 		if len(hv) != 2 {
-			return wrapErr(fmt.Errorf("missing header value"), command)
+			return result.Err(wrapErr(fmt.Errorf("missing header value"), command))
 		}
 		value, err := url.PathUnescape(hv[1])
 		if err != nil {
-			return fmt.Errorf("bad value for header (%s: %s): %w", hv[0], hv[1], err)
+			return result.Err(fmt.Errorf("bad value for header (%s: %s): %w", hv[0], hv[1], err))
 		}
 		ctx.skip = !(strings.ToLower(hv[0]) == "host" && strings.Contains(req.Host, value)) && !strings.Contains(req.Header.Get(hv[0]), value)
 		if ctx.not {
@@ -185,7 +196,7 @@ func step(ctx *cmdContext, r *tools.ArrLog, req *http.Request, rp *reqParams, co
 	case "-rnd":
 		p, err := strconv.Atoi(args)
 		if err != nil {
-			return err
+			return result.Err(err)
 		}
 		ctx.skip = p <= rand.Intn(100)
 		if ctx.not {
@@ -193,10 +204,10 @@ func step(ctx *cmdContext, r *tools.ArrLog, req *http.Request, rp *reqParams, co
 			ctx.not = false
 		}
 	case "-quit":
-		r.Appendln("Quitting")
+		o.Appendln("Quitting")
 		defer q(1)
 	case "-crash":
 		defer q(2)
 	}
-	return nil
+	return result
 }
