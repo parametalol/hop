@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/parametalol/hop/pkg/common"
-	"github.com/parametalol/hop/pkg/tlstools"
 	"github.com/parametalol/hop/pkg/tools"
 )
 
@@ -53,6 +52,9 @@ func makeReq(response *common.ServerLog, req *http.Request) (*reqParams, error) 
 		if clog.Error != nil {
 			return nil, clog.Error.Err
 		}
+	}
+	if rp.tlsInfo {
+		response.ConnectionState = (*common.ConnectionState)(req.TLS)
 	}
 	if command != "" {
 		if ctx.skip {
@@ -115,8 +117,8 @@ func step(ctx *cmdContext, req *http.Request, rp *reqParams, command, args strin
 		rp.rtrip = true
 	case "-tls":
 		rp.tlsInfo = true
-		o.Append("Server request TLS info:")
-		tlstools.AppendTLSInfo(o, req.TLS, false)
+		// o.Append("Server request TLS info:")
+		// tlstools.AppendTLSInfo(o, req.TLS, false)
 	case "-header", "-rheader":
 		hv := strings.SplitN(args, "=", 2)
 		if len(hv) != 2 {

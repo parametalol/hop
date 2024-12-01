@@ -3,10 +3,8 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -34,13 +32,13 @@ type hopClient struct {
 	cfg *config
 }
 
-func (cfg *config) getClient(roots *x509.CertPool) (*hopClient, error) {
+func (cfg *config) getClient() (*hopClient, error) {
 	transport := &http.Transport{
 		MaxIdleConns:        10,
 		IdleConnTimeout:     10 * time.Minute,
 		TLSHandshakeTimeout: 10 * time.Minute,
 		TLSClientConfig: &tls.Config{
-			RootCAs:            roots,
+			RootCAs:            tlstools.GetCertPool(cfg.cacerts...),
 			InsecureSkipVerify: cfg.insecure,
 		},
 	}
@@ -64,7 +62,7 @@ func (cfg *config) getClient(roots *x509.CertPool) (*hopClient, error) {
 }
 
 func (c *hopClient) callURL(req *http.Request, rtrip bool) (*http.Response, error) {
-	if c.cfg.verbose {
+	if c.cfg.loglevel > 2 {
 		if dump, err := httputil.DumpRequest(req, req.ContentLength < 1024); err == nil {
 			log.Debug(string(dump))
 		} else {
@@ -140,9 +138,7 @@ func (handler *hopHandler) hop(params *reqParams) *common.CommandLog {
 		return clog
 	}
 	if proxy_url, _ := proxy(clientReq); proxy_url != nil {
-		if handler.cfg.verbose {
-			log.Infof("Using proxy: %s", proxy_url)
-		}
+		log.Infof("Using proxy: %s", proxy_url)
 		if !handler.cfg.proxy_tunneling {
 			clientReq.URL.Host = proxy_url.Host
 			r.Appendf("Overriding url: %s", clientReq.URL)
@@ -151,7 +147,12 @@ func (handler *hopHandler) hop(params *reqParams) *common.CommandLog {
 			r.Appendf("Using proxy: %s", proxy_url)
 		}
 	}
-	res, err := handler.client.callURL(clientReq, params.rtrip)
+
+	client, err := handler.cfg.getClient()
+	if err != nil {
+		log.Panic(err)
+	}
+	res, err := client.callURL(clientReq, params.rtrip)
 	if err != nil {
 		log.Error(err)
 		r.Appendf("Couldn't call %s: %s\n", u, err.Error())
@@ -163,7 +164,7 @@ func (handler *hopHandler) hop(params *reqParams) *common.CommandLog {
 	}
 	clog.Code = res.StatusCode
 	clog.Url = u.String()
-	err = TreatResponse(clog, res, params, handler.cfg.insecure)
+	err = treatResponse(clog, res, params)
 
 	c := res.StatusCode
 
@@ -181,13 +182,12 @@ func (handler *hopHandler) hop(params *reqParams) *common.CommandLog {
 	return clog
 }
 
-func TreatResponse(clog *common.CommandLog, res *http.Response, params *reqParams, insecure bool) error {
+func treatResponse(clog *common.CommandLog, res *http.Response, params *reqParams) error {
 	r := &clog.Output
 	var err error
 	defer res.Body.Close()
 	if params.tlsInfo {
-		r.Append("== Response TLS info ==")
-		tlstools.AppendTLSInfo(r, res.TLS, insecure)
+		clog.ConnectionState = (*common.ConnectionState)(res.TLS)
 	}
 
 	if params.showHeaders {
@@ -204,18 +204,9 @@ func TreatResponse(clog *common.CommandLog, res *http.Response, params *reqParam
 			r.Appendln(err.Error())
 		}
 	}
-	isHopServer := res.Header.Get("Server") == "hop"
-	if isHopServer || res.ContentLength < 1024 {
-		if body, err := io.ReadAll(res.Body); err == nil {
-			if isHopServer {
-				if err = json.Unmarshal(body, &clog.Response); err != nil {
-					r.Append(string(body))
-				}
-			} else {
-				r.Append(string(body))
-			}
-		} else {
-			r.Appendf("failed to read response body: %s", err)
+	if res.Header.Get("Content-Type") == "application/json" {
+		if err := json.NewDecoder(res.Body).Decode(&clog.Response); err != nil {
+			clog.Err(err)
 		}
 	}
 	return err

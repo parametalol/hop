@@ -1,17 +1,19 @@
 package common
 
 import (
+	"encoding/json"
+
 	"github.com/parametalol/hop/pkg/tools"
 )
 
 type CommandLog struct {
-	Command     string       `json:"command,omitempty"`
-	Output      tools.ArrLog `json:"output,omitempty"`
-	Url         string       `json:"url,omitempty"`
-	Code        int          `json:"code,omitempty"`
-	Certificate *Certificate `json:"certificate,omitempty"`
-	Response    *ServerLog   `json:"response,omitempty"`
-	Error       Error        `json:"error,omitempty"`
+	Command         string           `json:"command,omitempty"`
+	Output          tools.ArrLog     `json:"output,omitempty"`
+	Url             string           `json:"url,omitempty"`
+	Code            int              `json:"code,omitempty"`
+	ConnectionState *ConnectionState `json:"connection-state,omitempty"`
+	Response        json.RawMessage  `json:"response,omitempty"`
+	Error           Error            `json:"error,omitempty"`
 }
 
 func (c *CommandLog) Err(err error) *CommandLog {
@@ -33,6 +35,5 @@ type ServerLog struct {
 	Port            uint16           `json:"port-http,omitempty"`
 	Ports           uint16           `json:"port-https,omitempty"`
 	ConnectionState *ConnectionState `json:"connection-state,omitempty"`
-	Certificate     *Certificate     `json:"certificate,omitempty"`
 	Request         *RequestLog      `json:"request,omitempty"`
 }

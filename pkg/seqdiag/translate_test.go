@@ -1,6 +1,7 @@
 package seqdiag
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/parametalol/hop/pkg/common"
@@ -50,7 +51,8 @@ func Test_diagram_translate(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			actual := &diagram{}
-			actual.translate(tt.sr)
+			data, _ := json.Marshal(tt.sr)
+			actual.translate(data)
 
 			assert.Equal(t, tt.expected, actual)
 		})

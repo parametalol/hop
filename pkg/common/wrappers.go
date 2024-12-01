@@ -2,7 +2,6 @@ package common
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"reflect"
 )
@@ -23,21 +22,13 @@ func omitEmpty[T any](obj *T) ([]byte, error) {
 
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
-		if !field.IsValid() {
+		if !field.IsValid() || isEmptyValue(field) || !field.CanInterface() {
 			continue
 		}
-		if !isEmptyValue(field) {
-			fieldName := typeOfOriginal.Field(i).Name
-			result[fieldName] = field.Interface()
-		}
+		fieldName := typeOfOriginal.Field(i).Name
+		result[fieldName] = field.Interface()
 	}
 	return json.Marshal(result)
-}
-
-type Certificate x509.Certificate
-
-func (e *Certificate) MarshalJSON() ([]byte, error) {
-	return omitEmpty(e)
 }
 
 type ConnectionState tls.ConnectionState

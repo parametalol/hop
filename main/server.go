@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	stdlog "log"
 	"net"
@@ -13,12 +12,12 @@ import (
 	"time"
 
 	"github.com/parametalol/hop/pkg/common"
+	"github.com/parametalol/hop/pkg/tlstools"
 	log "github.com/sirupsen/logrus"
 )
 
 type hopHandler struct {
-	cfg    *config
-	client *hopClient
+	cfg *config
 }
 
 func getServer(host string, port uint16) *http.Server {
@@ -33,9 +32,9 @@ func getServer(host string, port uint16) *http.Server {
 	}
 }
 
-func (cfg *config) startHttpServer(client *hopClient, quit chan<- int) *http.Server {
+func (cfg *config) startHttpServer(quit chan<- int) *http.Server {
 	s := getServer(cfg.localhost, uint16(cfg.port_http))
-	s.Handler = &hopHandler{cfg, client}
+	s.Handler = &hopHandler{cfg}
 
 	go func() {
 		log.Info("Serving HTTP on ", cfg.localhost, ":", cfg.port_http)
@@ -46,13 +45,13 @@ func (cfg *config) startHttpServer(client *hopClient, quit chan<- int) *http.Ser
 	return s
 }
 
-func (cfg *config) startHttpsServer(client *hopClient, pool *x509.CertPool, quit chan<- int) (*http.Server, error) {
+func (cfg *config) startHttpsServer(quit chan<- int) (*http.Server, error) {
 	stls := getServer(cfg.localhost, uint16(cfg.port_https))
-	stls.Handler = &hopHandler{cfg, client}
+	stls.Handler = &hopHandler{cfg}
 
 	stls.ErrorLog = stdlog.New(log.StandardLogger().Writer(), "tls", 0)
 	stls.TLSConfig = &tls.Config{
-		ClientCAs:    pool,
+		ClientCAs:    tlstools.GetCertPool(cfg.cacerts...),
 		ClientAuth:   tls.VerifyClientCertIfGiven,
 		Certificates: []tls.Certificate{*cfg.getCert("Hop server")},
 	}
@@ -71,7 +70,7 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		handler.cfg.seqdiag = true
 	}
 
-	if handler.cfg.verbose {
+	if handler.cfg.loglevel > 2 {
 		dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
 		if err == nil {
 			log.Debug(string(dump))

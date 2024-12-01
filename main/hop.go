@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -50,8 +48,7 @@ var (
 
 type config struct {
 	insecure        bool
-	verbose         bool
-	debug           bool
+	loglevel        uint8
 	port_http       uint
 	port_https      uint
 	http_proxy      string
@@ -68,7 +65,7 @@ type config struct {
 	seqdiag         bool
 }
 
-func getConfig() *config {
+func getConfig() (*config, []string) {
 	var port_http uint64 = 80
 	var port_https uint64 = 443
 	var err error
@@ -87,24 +84,24 @@ func getConfig() *config {
 
 	cfg := &config{}
 
-	fs := flag.NewFlagSet("hop", flag.ContinueOnError)
-	fs.BoolVarP(&cfg.verbose, "verbose", "v", false, "verbose output")
-	fs.BoolVarP(&cfg.debug, "debug", "", false, "debug output")
-	fs.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
-	fs.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
-	fs.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
-	fs.BoolVarP(&cfg.seqdiag, "seqdiag", "", false, "sequence diagram output")
+	// .NewFlagSet("hop", flag.ContinueOnError)
+	flag.Uint8VarP(&cfg.loglevel, "loglevel", "v", 1, "log level [0..6]")
+	flag.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
+	flag.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
+	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
+	flag.BoolVarP(&cfg.seqdiag, "seqdiag", "", false, "sequence diagram output")
 
-	fs.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
-	fs.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
-	fs.StringVarP(&cfg.https_proxy, "https-proxy", "", os.Getenv("https_proxy"), "HTTPS proxy")
-	fs.BoolVarP(&cfg.proxy_tunneling, "proxy-tunneling", "", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
+	flag.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
+	flag.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
+	flag.StringVarP(&cfg.https_proxy, "https-proxy", "", os.Getenv("https_proxy"), "HTTPS proxy")
+	flag.BoolVarP(&cfg.proxy_tunneling, "proxy-tunneling", "", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
 
-	fs.StringVarP(&cfg.cacert, "cacert", "", "", "CA certificate file to sign server and client certificates")
-	fs.StringVarP(&cfg.certificate, "cert", "", "", "server certificate PEM file")
-	fs.StringVarP(&cfg.key, "key", "", "", "server private key PEM file")
+	flag.StringVarP(&cfg.cacert, "cacert", "", "", "CA certificate file to sign server and client certificates")
+	flag.StringVarP(&cfg.certificate, "cert", "", "", "server certificate PEM file")
+	flag.StringVarP(&cfg.key, "key", "", "", "server private key PEM file")
+
+	flag.StringArrayVarP(&cfg.cacerts, "cacerts", "", nil, "additional trusted CA certificate PEM files")
 	/*
-		fs.StringArrayVarP(&cfg.cacerts, "cacerts", "", nil, "trusted CA certificate PEM files")
 		fs.StringVarP(&cfg.cakey, "cakey", "", "", "CA certificate private key PEM file")
 		fs.BoolVarP(&cfg.mtls, "mtls", "m", false, "set client certificate (same as cert)")
 		fs.StringArrayVarP(&cfg.serviceNames, "name", "n", []string{"localhost"}, "the service DNS name(s) for the certificate")
@@ -114,30 +111,26 @@ func getConfig() *config {
 		fmt.Fprintf(os.Stderr, "Usage of hop:\n")
 		flag.PrintDefaults()
 	}
-	if errors.Is(fs.Parse(os.Args), flag.ErrHelp) {
-		return nil
-	}
-	return cfg
+	flag.Parse()
+	return cfg, flag.Args()
 }
 
 func main() {
 
-	cfg := getConfig()
+	cfg, args := getConfig()
 	if cfg == nil {
 		log.Exit(0)
 	}
 
-	if cfg.verbose {
-		log.SetLevel(log.InfoLevel)
-	}
-	if cfg.debug {
-		log.SetLevel(log.TraceLevel)
-	}
+	log.SetLevel(log.Level(cfg.loglevel))
 	tlstools.Init()
 
 	var err error
 	if len(cfg.https_proxy) != 0 {
 		https_proxy_url, err = url.Parse(cfg.https_proxy)
+	}
+	if err != nil {
+		log.Panicf("failed to parse parameters: %s", err)
 	}
 	if len(cfg.http_proxy) != 0 {
 		http_proxy_url, err = url.Parse(cfg.http_proxy)
@@ -149,60 +142,13 @@ func main() {
 	if cfg.cacert != "" {
 		cfg.cacerts = append(cfg.cacerts, cfg.cacert)
 	}
-	var p *x509.CertPool
-	p, err = tlstools.GetCertPool(cfg.cacerts)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	client, err := cfg.getClient(p)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	if flag.NArg() == 1 {
-		u, err := url.Parse(flag.Arg(0))
-		if err != nil {
-			log.Panic(err)
-		}
-		params := newReqParams()
-		params.tlsInfo = true
-		params.showHeaders = true
-		if req, err := BuildRequest(u, http.MethodGet, params.headers, 0); err != nil {
-			log.Error(err)
-		} else {
-			if res, err := client.Do(req); err != nil {
-				log.Error(err)
-			} else {
-				clog := common.CommandLog{}
-				if err := TreatResponse(&clog, res, params, cfg.insecure); err != nil {
-					log.Error(err)
-				}
-				fmt.Println("= Command output =")
-				for _, line := range clog.Output {
-					fmt.Println(line)
-				}
-				fmt.Println("== Response ==")
-				if clog.Response != nil {
-					if cfg.seqdiag {
-						d, _ := seqdiag.Translate(clog.Response)
-						fmt.Println(d)
-					} else {
-						b, err := json.MarshalIndent(clog.Response, "", "  ")
-						if err != nil {
-							log.Error(err)
-						} else {
-							fmt.Println(string(b))
-						}
-					}
-				}
-			}
-		}
+	if len(args) == 1 {
+		doHop(cfg, args)
 		return
 	}
 
-	s := cfg.startHttpServer(client, quit)
-	stls, err := cfg.startHttpsServer(client, p, quit)
+	s := cfg.startHttpServer(quit)
+	stls, err := cfg.startHttpsServer(quit)
 	if err != nil {
 		log.Panicf("failed to start HTTPS server: %v", err)
 	}
@@ -229,6 +175,58 @@ func main() {
 		log.Panic("Rabbits are coming!")
 	}
 	log.Info("Exiting normally")
+}
+
+func doHop(cfg *config, args []string) {
+	u, err := url.Parse(args[len(args)-1])
+	if err != nil {
+		log.Panic(err)
+	}
+	params := newReqParams()
+	params.tlsInfo = true
+	params.showHeaders = true
+	req, err := BuildRequest(u, http.MethodGet, params.headers, 0)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	client, err := cfg.getClient()
+	if err != nil {
+		log.Panic(err)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	clog := common.CommandLog{}
+	if err := treatResponse(&clog, res, params); err != nil {
+		log.Error(err)
+	}
+	if cfg.seqdiag {
+		fmt.Println("= Command output =")
+		for _, line := range clog.Output {
+			fmt.Println(line)
+		}
+		fmt.Println("== Response ==")
+		if clog.Response != nil {
+			if cfg.seqdiag {
+				d, _ := seqdiag.Translate(clog.Response)
+				fmt.Println(d)
+			} else {
+				b, err := json.MarshalIndent(clog.Response, "", "  ")
+				if err != nil {
+					log.Error(err)
+				} else {
+					fmt.Println(string(b))
+				}
+			}
+		}
+	} else {
+		e := json.NewEncoder(os.Stdout)
+		e.SetIndent("", "  ")
+		e.Encode(&clog)
+	}
 }
 
 func (cfg *config) getCert(cn string) *tls.Certificate {

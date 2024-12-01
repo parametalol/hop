@@ -36,11 +36,11 @@ func Init() {
 	pool.AddCert(ca)
 }
 
-func GetCertPool(cacertFiles []string) (*x509.CertPool, error) {
+func GetCertPool(cacertFiles ...string) *x509.CertPool {
 	for _, cacertFile := range cacertFiles {
 		addCA(cacertFile)
 	}
-	return pool, nil
+	return pool
 }
 
 func addCA(cacertFile string) (*x509.CertPool, error) {

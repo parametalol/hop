@@ -1,6 +1,7 @@
 package seqdiag
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,7 +13,7 @@ type diagram struct {
 	lines        []string
 }
 
-func Translate(sr *common.ServerLog) (string, error) {
+func Translate(sr json.RawMessage) (string, error) {
 	if sr == nil {
 		return "", nil
 	}
@@ -28,7 +29,12 @@ func Translate(sr *common.ServerLog) (string, error) {
 	return strings.Join(output, "\n"), nil
 }
 
-func (d *diagram) translate(sr *common.ServerLog) {
+func (d *diagram) translate(raw json.RawMessage) {
+	var sr common.ServerLog
+	if err := json.Unmarshal(([]byte)(raw), &sr); err != nil {
+		fmt.Printf("Error decoding response")
+		return
+	}
 	srv := sr.Server
 
 	d.participants = append(d.participants, srv)
