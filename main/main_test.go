@@ -14,6 +14,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type httpResponseWriterMock struct{}
+
+var _ http.ResponseWriter = (*httpResponseWriterMock)(nil)
+
+func (w *httpResponseWriterMock) Header() http.Header {
+	return http.Header{}
+}
+func (w *httpResponseWriterMock) WriteHeader(int) {
+}
+func (w *httpResponseWriterMock) Write([]byte) (int, error) {
+	return 0, nil
+}
+
 func TestReq(t *testing.T) {
 
 	def := newReqParams()
@@ -49,14 +62,15 @@ func TestReq(t *testing.T) {
 		},
 		"rsize": {command: "-rsize:1",
 			commands: []string{"-rsize:1"}, logs: tools.ArrLog{"Appending 1 bytes", "X", "\n"}},
-		"header": {command: "-header:a=b",
+		"header": {command: "-header:a=b/call-further",
 			commands: []string{"-header:a=b"}, logs: tools.ArrLog{"Will add header a: b"},
 			headers: map[string]string{
-				"Accept-Encoding": "text/plain",
-				"Content-type":    "text/plain",
+				"Accept-Encoding": "application/json",
+				"Content-type":    "application/json",
 				"User-Agent":      "hop",
 				"a":               "b",
 			},
+			url: "http://call-further/",
 		},
 		"not": {command: "-not/-code:500",
 			code: 500, commands: []string{"-not", "-code:500"}, logs: tools.ArrLog{"Returning code 500"}},
@@ -74,12 +88,12 @@ func TestReq(t *testing.T) {
 
 	for test, c := range cases {
 		t.Run(test, func(t *testing.T) {
-			r := common.ServerLog{
-				Request: &common.RequestLog{},
+			r := common.ServerResponse{
+				InboundRequest: &common.Request{},
 			}
 			u, err := url.Parse("http://testhost/" + c.command)
 			assert.NoError(t, err)
-			rp, err := makeReq(&r, &http.Request{URL: u})
+			rp, err := prepareRequest(u, nil, &r)
 			if c.err != nil {
 				require.Error(t, err)
 				require.ErrorIs(t, err, c.err)
@@ -99,7 +113,7 @@ func TestReq(t *testing.T) {
 			}
 			output := tools.ArrLog{}
 			commands := []string{}
-			for _, c := range r.Request.Process {
+			for _, c := range r.Process {
 				commands = append(commands, c.Command)
 				output = append(output, c.Output...)
 			}

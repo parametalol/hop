@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 )
@@ -68,4 +69,12 @@ func BuildURL(addr, path string) (*url.URL, error) {
 		return nil, fmt.Errorf("cannot call %s: %s", addr, err.Error())
 	}
 	return u, nil
+}
+
+func JoinHeaders(h http.Header) map[string]string {
+	headers := make(map[string]string, len(h))
+	for k, vv := range h {
+		headers[k] = strings.Join(vv, ",")
+	}
+	return headers
 }

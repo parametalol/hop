@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -91,31 +91,32 @@ type reqParams struct {
 
 func newReqParams() *reqParams {
 	return &reqParams{
+		method: http.MethodGet,
 		headers: map[string]string{
-			"Content-type":    "text/plain",
-			"Accept-Encoding": "text/plain",
+			"Content-type":    "application/json",
+			"Accept-Encoding": "application/json",
 			"User-Agent":      "hop",
 		},
 		rheaders: map[string]string{
-			"Content-type": "text/plain",
+			"Content-type": "application/json",
 		},
 		fheaders: []string{},
 	}
 }
 
-func BuildRequest(url *url.URL, method string, headers map[string]string, size int) (*http.Request, error) {
-	log.Infof("Call %s, sending %d bytes and %v", url, size, headers)
-	payload := bytes.Repeat([]byte{'X'}, size)
+func buildRequest(p *reqParams) (*http.Request, error) {
+	log.Infof("Call %s, sending %d bytes and %v", p.url, p.size, p.headers)
+	payload := bytes.Repeat([]byte{'X'}, p.size)
 
-	if method == "" {
-		method = http.MethodGet
+	if p.method == "" {
+		p.method = http.MethodGet
 	}
-	req, err := http.NewRequest(method, url.String(), bytes.NewReader(payload))
+	req, err := http.NewRequest(p.method, p.url.String(), bytes.NewReader(payload))
 	if err != nil || req == nil {
 		return nil, err
 	}
 
-	for h, v := range headers {
+	for h, v := range p.headers {
 		if strings.ToLower(h) == "host" {
 			req.Host = v
 		} else {
@@ -125,89 +126,41 @@ func BuildRequest(url *url.URL, method string, headers map[string]string, size i
 	return req, err
 }
 
-func (handler *hopHandler) hop(params *reqParams) *common.CommandLog {
-	clog := &common.CommandLog{Command: "hop"}
-	r := &clog.Output
-	u := params.url
-	clientReq, err := BuildRequest(u, params.method, params.headers, params.size)
-	if err != nil {
-		r.Appendf("Couldn't make %s: %s\n", u, err.Error())
-		return clog
-	} else if clientReq == nil {
-		r.Appendf("Couldn't make %s by some reason\n", u)
-		return clog
+func readBody(body io.ReadCloser, headers http.Header) (*common.Body, error) {
+	defer body.Close()
+	var err error
+	data, err := io.ReadAll(body)
+	switch strings.Split(headers.Get("Content-Type"), ";")[0] {
+	case "application/json":
+		return &common.Body{
+			Json: data,
+		}, err
+	case "text/plain":
+		return &common.Body{
+			Text: string(data),
+		}, err
+	default:
+		return &common.Body{}, err
 	}
-	if proxy_url, _ := proxy(clientReq); proxy_url != nil {
-		log.Infof("Using proxy: %s", proxy_url)
-		if !handler.cfg.proxy_tunneling {
-			clientReq.URL.Host = proxy_url.Host
-			r.Appendf("Overriding url: %s", clientReq.URL)
-		}
-		if params.showHeaders {
-			r.Appendf("Using proxy: %s", proxy_url)
-		}
-	}
-
-	client, err := handler.cfg.getClient()
-	if err != nil {
-		log.Panic(err)
-	}
-	res, err := client.callURL(clientReq, params.rtrip)
-	if err != nil {
-		log.Error(err)
-		r.Appendf("Couldn't call %s: %s\n", u, err.Error())
-		return clog
-	}
-	if res == nil {
-		r.Appendf("Couldn't call %s by some reason\n", u)
-		return clog
-	}
-	clog.Code = res.StatusCode
-	clog.Url = u.String()
-	err = treatResponse(clog, res, params)
-
-	c := res.StatusCode
-
-	for _, h := range params.fheaders {
-		v := res.Header.Get(h)
-		r.Appendf("Back forwarding header %s: %s", h, v)
-		if len(v) > 0 {
-			params.rheaders[h] = v
-		}
-	}
-	if c == 0 && err != nil {
-		c = 500
-	}
-	params.code.Set(c)
-	return clog
 }
 
-func treatResponse(clog *common.CommandLog, res *http.Response, params *reqParams) error {
-	r := &clog.Output
-	var err error
-	defer res.Body.Close()
+func processResponse(clog *common.CommandLog, res *http.Response, params *reqParams) {
+	clog.OutbountRequest.Response = &common.Response{
+		Code:   res.StatusCode,
+		Status: res.Status,
+	}
+	clog.Code = res.StatusCode
+	params.code.Set(res.StatusCode)
 	if params.tlsInfo {
-		clog.ConnectionState = (*common.ConnectionState)(res.TLS)
+		clog.OutbountRequest.ConnectionState = (*common.ConnectionState)(res.TLS)
 	}
-
 	if params.showHeaders {
-		var dump []byte
-		dump, err = httputil.DumpResponse(res, false)
-		r.Append("== Response headers ==")
-		if err == nil {
-			for _, h := range strings.Split(string(dump), "\r\n") {
-				if h != "" {
-					r.Append("  " + h)
-				}
-			}
-		} else {
-			r.Appendln(err.Error())
-		}
+		clog.OutbountRequest.Response.Headers = tools.JoinHeaders(res.Header)
 	}
-	if res.Header.Get("Content-Type") == "application/json" {
-		if err := json.NewDecoder(res.Body).Decode(&clog.Response); err != nil {
-			clog.Err(err)
-		}
+	body, err := readBody(res.Body, res.Header)
+	if err != nil {
+		clog.Err(err)
 	}
-	return err
+	body.Size = res.ContentLength
+	clog.OutbountRequest.Response.Body = body
 }

@@ -15,6 +15,28 @@ import (
 	"github.com/parametalol/hop/pkg/tools"
 )
 
+var help = map[string][2]string{
+	"-code":    {"N", "responde with HTTP code N"},
+	"-crash":   {"", "stops the server without a response"},
+	"-fheader": {"H", "forward incoming header H to the following request"},
+	"-header":  {"H=V", "add header H: V to the following request"},
+	"-help":    {"", "return help message"},
+	"-if":      {"H=V", "execute next command if header H contains substring V"},
+	"-info":    {"", "return some info about the request"},
+	"-method":  {"M", "use M method for the request"},
+	"-rtrip":   {"", "do a round-trip request (no follow redirects and such)"},
+	"-tls":     {"", "include verbose TLS info"},
+	"-not":     {"", "reverts the effect of the next boolean command (if, on)"},
+	"-on":      {"H", "executes next command if the server host name contains substring H"},
+	"-quit":    {"", "stops the server with a nice response"},
+	"-rheader": {"H=V", "add header H: V to the reponse"},
+	"-rnd":     {"P", "execute next command with P% probability"},
+	"-rsize":   {"B", "add B bytes of payload to the response"},
+	"-size":    {"B", "add B bytes of payload to the following query"},
+	"-wait":    {"T", "wait for T ms before response"},
+	"-env":     {"V", "return the value of an environment variable"},
+}
+
 type cmdContext struct {
 	skip, not bool
 }
@@ -39,8 +61,22 @@ func execCommand(ctx *cmdContext, req *http.Request, rp *reqParams, cmd string) 
 	return step(ctx, req, rp, cmd, args)
 }
 
-func makeReq(response *common.ServerLog, req *http.Request) (*reqParams, error) {
-	command, path, err := tools.GetFirstCommand(req.URL)
+func makeReq(cfg *config, w http.ResponseWriter, response *common.ServerResponse, req *http.Request) error {
+	rp, err := prepareRequest(req.URL, req, response)
+	if rp == nil {
+		return err
+	}
+	clog := hop(cfg, rp)
+	response.Process = append(response.Process, clog)
+	w.WriteHeader(int(rp.code.Set(200)))
+	for h, v := range rp.rheaders {
+		w.Header().Set(h, v)
+	}
+	return nil
+}
+
+func prepareRequest(url *url.URL, req *http.Request, response *common.ServerResponse) (*reqParams, error) {
+	command, path, err := tools.GetFirstCommand(url)
 	if err != nil {
 		return nil, err
 	}
@@ -48,23 +84,25 @@ func makeReq(response *common.ServerLog, req *http.Request) (*reqParams, error) 
 	ctx := &cmdContext{}
 	for ; strings.HasPrefix(command, "-"); command, path = tools.Pop(path) {
 		clog := execCommand(ctx, req, rp, command)
-		response.Request.Process = append(response.Request.Process, clog)
+		response.Process = append(response.Process, clog)
 		if clog.Error != nil {
 			return nil, clog.Error.Err
 		}
 	}
-	if rp.tlsInfo {
+	if req != nil && rp.tlsInfo {
 		response.ConnectionState = (*common.ConnectionState)(req.TLS)
 	}
-	if command != "" {
-		if ctx.skip {
-			// r.appendf("Skipping call to %s", nextCommand)
-			return nil, nil
-		}
-		var err error
-		if rp.url, err = tools.BuildURL(command, path); err != nil {
-			return nil, err
-		}
+	if command == "" {
+		return nil, nil
+	}
+	if ctx.skip {
+		clog := &common.CommandLog{}
+		clog.Output.Appendf("Skipping call to %s", command)
+		response.Process = append(response.Process, clog)
+		return nil, nil
+	}
+	if rp.url, err = tools.BuildURL(command, path); err != nil {
+		return nil, err
 	}
 	return rp, nil
 }
@@ -103,13 +141,15 @@ func step(ctx *cmdContext, req *http.Request, rp *reqParams, command, args strin
 		o.Appendf("Waited for %d ms", d)
 	case "-info":
 		rp.showHeaders = true
-		dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
-		if err == nil {
-			for _, line := range strings.Split(string(dump), "\r\n") {
-				o.Appendf("%s", line)
+		if req != nil {
+			dump, err := httputil.DumpRequest(req, req.ContentLength < 1024)
+			if err == nil {
+				for _, line := range strings.Split(string(dump), "\r\n") {
+					o.Appendf("%s", line)
+				}
+			} else {
+				o.Appendf("Error: %s", err)
 			}
-		} else {
-			o.Appendf("Error: %s", err)
 		}
 	case "-method":
 		rp.method = args
@@ -135,6 +175,9 @@ func step(ctx *cmdContext, req *http.Request, rp *reqParams, command, args strin
 			rp.rheaders[hv[0]] = value
 		}
 	case "-fheader":
+		if req == nil {
+			break
+		}
 		o.Appendf("Will forward header %s: %s", args, req.Header.Get(args))
 		rp.headers[args] = req.Header.Get(args)
 		rp.fheaders = append(rp.fheaders, args)
@@ -182,6 +225,9 @@ func step(ctx *cmdContext, req *http.Request, rp *reqParams, command, args strin
 			}
 		}
 	case "-if":
+		if req == nil {
+			break
+		}
 		hv := strings.SplitN(args, "=", 2)
 		if len(hv) != 2 {
 			return result.Err(wrapErr(fmt.Errorf("missing header value"), command))

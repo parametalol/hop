@@ -13,6 +13,7 @@ import (
 
 	"github.com/parametalol/hop/pkg/common"
 	"github.com/parametalol/hop/pkg/tlstools"
+	"github.com/parametalol/hop/pkg/tools"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -76,44 +77,42 @@ func (handler *hopHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	hn, _ := os.Hostname()
-	response := &common.ServerLog{
+
+	serverResponse := &common.ServerResponse{
 		Server: hn,
 		Iface:  handler.cfg.localhost,
 		Port:   uint16(handler.cfg.port_http),
 		Ports:  uint16(handler.cfg.port_https),
-		Request: &common.RequestLog{
+		InboundRequest: &common.Request{
 			Path:    req.URL.RawPath,
 			Method:  req.Method,
 			From:    req.RemoteAddr,
-			Size:    req.ContentLength,
-			Process: []*common.CommandLog{},
+			Headers: tools.JoinHeaders(req.Header),
 		},
+		Process: []*common.CommandLog{},
 	}
 
-	rp, err := makeReq(response, req)
-	w.Header().Add("Server", "hop")
+	body, err := readBody(req.Body, req.Header)
 	if err != nil {
-		if len(response.Request.Process) > 0 && response.Request.Process[len(response.Request.Process)-1].Error != nil {
-			w.WriteHeader(response.Request.Process[len(response.Request.Process)-1].Code)
+		clog := &common.CommandLog{}
+		clog.Err(err)
+		serverResponse.Process = append(serverResponse.Process, clog)
+	}
+	body.Size = req.ContentLength
+	serverResponse.InboundRequest.Body = body
+
+	w.Header().Add("Server", "hop")
+	if err := makeReq(handler.cfg, w, serverResponse, req); err != nil {
+		if len(serverResponse.Process) > 0 && serverResponse.Process[len(serverResponse.Process)-1].Error != nil {
+			w.WriteHeader(serverResponse.Process[len(serverResponse.Process)-1].Code)
 		} else {
 			w.WriteHeader(500)
 		}
 	}
-	if rp != nil {
-		if rp.url != nil {
-			log.Debug("sending request to ", rp.url)
-			clog := handler.hop(rp)
-			response.Request.Process = append(response.Request.Process, clog)
-		}
-		w.WriteHeader(int(rp.code.Set(200)))
-		for h, v := range rp.rheaders {
-			w.Header().Set(h, v)
-		}
-	}
-	b, err := json.MarshalIndent(response, "", "  ")
+	b, err := json.MarshalIndent(serverResponse, "", "  ")
 	if err != nil {
 		log.Error("Error marshalling response: ", err.Error())
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Write(b)
