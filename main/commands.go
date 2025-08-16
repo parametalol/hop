@@ -16,7 +16,7 @@ import (
 )
 
 var help = map[string][2]string{
-	"-code":    {"N", "responde with HTTP code N"},
+	"-code":    {"N", "respond with HTTP code N"},
 	"-crash":   {"", "stops the server without a response"},
 	"-fheader": {"H", "forward incoming header H to the following request"},
 	"-header":  {"H=V", "add header H: V to the following request"},
@@ -29,7 +29,7 @@ var help = map[string][2]string{
 	"-not":     {"", "reverts the effect of the next boolean command (if, on)"},
 	"-on":      {"H", "executes next command if the server host name contains substring H"},
 	"-quit":    {"", "stops the server with a nice response"},
-	"-rheader": {"H=V", "add header H: V to the reponse"},
+	"-rheader": {"H=V", "add header H: V to the response"},
 	"-rnd":     {"P", "execute next command with P% probability"},
 	"-rsize":   {"B", "add B bytes of payload to the response"},
 	"-size":    {"B", "add B bytes of payload to the following query"},
