@@ -51,7 +51,8 @@ sh$ curl hop/-help | jq -rj '.request.process[0].output | join("\n")'
 -if:H=V       - execute next command if header H contains substring V
 -on:H         - executes next command if the server host name contains substring H
 -quit         - stops the server with a nice response
--size:B       - add B bytes of payload to the response
+-size:B       - add B bytes of payload to the next request
+-rsize:B      - append B bytes of payload to the response
 -not          - reverts the effect of the next boolean command (if, on)
 -rnd:P        - execute next command with P% probability
 -wait:T       - wait for T ms before response
