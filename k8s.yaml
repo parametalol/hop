@@ -5,8 +5,6 @@ items:
     kind: Deployment
     metadata: &metadata
       name: &name hop1
-      annotations:
-        secretName: &secret hop1-tls
       labels: &labels
         app: *name
     spec:
@@ -25,8 +23,10 @@ items:
             - image: smartptr/hop:latest
               name: *name
               args:
-                - --verbose
-                - --insecure
+                - --key "/etc/tls/private/tls.key"
+                - --cert "/etc/tls/private/tls.crt"
+                - --port-http 8080
+                - --port-https 8443
               ports:
                 - containerPort: 8080
                   name: http
@@ -45,12 +45,14 @@ items:
           volumes:
             - name: tls
               secret:
-                secretName: *secret
+                secretName: *name
                 optional: true
   - apiVersion: v1
     kind: Service
     metadata:
       <<: *metadata
+      annotations:
+        service.beta.openshift.io/serving-cert-secret-name: *name
     spec:
       ports:
         - port: 80

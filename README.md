@@ -30,7 +30,7 @@ sh$ curl box1:8080/-wait:1000/box2:8000/-rheader:a=b
 
 ```console
 sh$ cd hop
-sh$ podman build -v "$PWD":/build --security-opt label=disabled -t hop:local .
+sh$ podman build -v "$PWD":/build --security-opt label=disable -t hop:local .
 sh$ podman run --rm -p 8080:8080 hop:local
 ```
 

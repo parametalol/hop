@@ -61,12 +61,13 @@ func getConfig() (*config, []string) {
 	flag.Uint8VarP(&cfg.loglevel, "loglevel", "v", 1, "log level [0..6]")
 	flag.StringVarP(&cfg.localhost, "interface", "i", "0.0.0.0", "the interface to listen on")
 	flag.UintVarP(&cfg.port_http, "port-http", "", uint(port_http), "port HTTP")
-	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
 
-	flag.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
 	flag.StringVarP(&cfg.http_proxy, "http-proxy", "", os.Getenv("http_proxy"), "HTTP proxy")
 	flag.StringVarP(&cfg.https_proxy, "https-proxy", "", os.Getenv("https_proxy"), "HTTPS proxy")
 	flag.BoolVarP(&cfg.proxy_tunneling, "proxy-tunneling", "", false, "use proxy tunneling (if false just put the proxy to the Host: header)")
+
+	flag.BoolVarP(&cfg.insecure, "insecure", "k", false, "client to skip TLS verification")
+	flag.UintVarP(&cfg.port_https, "port-https", "", uint(port_https), "port HTTPS")
 
 	flag.StringVarP(&cfg.cacert, "cacert", "", "", "CA certificate file to sign server and client certificates")
 	flag.StringVarP(&cfg.certificate, "cert", "", "", "server certificate PEM file")
@@ -84,6 +85,21 @@ func getConfig() (*config, []string) {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	// If TLS key and certificate files do not exist, e.g. if the TLS secret is not mounted, keep the empty to generate
+	// self-signed ones.
+	if _, err := os.Stat(cfg.key); err != nil {
+		cfg.key = ""
+		cfg.certificate = ""
+	}
+	if _, err := os.Stat(cfg.certificate); err != nil {
+		cfg.key = ""
+		cfg.certificate = ""
+	}
+
+	if cfg.cacert != "" {
+		cfg.cacerts = append(cfg.cacerts, cfg.cacert)
+	}
+
 	return cfg, flag.Args()
 }
 
@@ -111,9 +127,6 @@ func main() {
 		log.Panicf("failed to parse parameters: %s", err)
 	}
 
-	if cfg.cacert != "" {
-		cfg.cacerts = append(cfg.cacerts, cfg.cacert)
-	}
 	if len(args) == 1 {
 		doHop(cfg, args)
 		return
