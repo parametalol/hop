@@ -44,11 +44,11 @@ func TestExecuteRequest_BasicGET(t *testing.T) {
 	}
 
 	// Verify request metadata
-	if result.Request.Method != "GET" {
-		t.Errorf("Expected method GET, got %s", result.Request.Method)
+	if result.OutgoingRequest.Method != "GET" {
+		t.Errorf("Expected method GET, got %s", result.OutgoingRequest.Method)
 	}
-	if result.Request.URL != server.URL {
-		t.Errorf("Expected URL %s, got %s", server.URL, result.Request.URL)
+	if result.OutgoingRequest.URL != server.URL {
+		t.Errorf("Expected URL %s, got %s", server.URL, result.OutgoingRequest.URL)
 	}
 
 	// Verify response metadata
@@ -108,8 +108,8 @@ func TestExecuteRequest_POST(t *testing.T) {
 	}
 
 	// Verify request metadata
-	if result.Request.Method != "POST" {
-		t.Errorf("Expected method POST, got %s", result.Request.Method)
+	if result.OutgoingRequest.Method != "POST" {
+		t.Errorf("Expected method POST, got %s", result.OutgoingRequest.Method)
 	}
 
 	// Verify response
@@ -156,8 +156,8 @@ func TestExecuteRequest_WithHeaders(t *testing.T) {
 	}
 
 	// Verify header was captured in request metadata
-	if result.Request.Headers["Authorization"] != "Bearer token123" {
-		t.Errorf("Expected Authorization in metadata, got %q", result.Request.Headers["Authorization"])
+	if result.OutgoingRequest.Headers["Authorization"] != "Bearer token123" {
+		t.Errorf("Expected Authorization in metadata, got %q", result.OutgoingRequest.Headers["Authorization"])
 	}
 }
 
@@ -209,8 +209,8 @@ func TestExecuteRequest_MethodAliases(t *testing.T) {
 				t.Errorf("Expected method %s, got %s", tt.expectedMethod, receivedMethod)
 			}
 
-			if result.Request.Method != tt.expectedMethod {
-				t.Errorf("Expected request method %s, got %s", tt.expectedMethod, result.Request.Method)
+			if result.OutgoingRequest.Method != tt.expectedMethod {
+				t.Errorf("Expected request method %s, got %s", tt.expectedMethod, result.OutgoingRequest.Method)
 			}
 		})
 	}
@@ -482,5 +482,154 @@ func TestExecuteRequest_FollowRedirect(t *testing.T) {
 	// Should have reached the target path
 	if finalPath != "/target" {
 		t.Errorf("Expected final path '/target', got %s", finalPath)
+	}
+}
+
+func TestProxyMetadata(t *testing.T) {
+	// Test that ProxyMetadata can be properly set and serialized
+	resp := &ProxyResponse{
+		OutgoingRequest: &RequestMetadata{
+			URL:    "http://example.com",
+			Method: "GET",
+		},
+		Response: &ResponseMetadata{
+			StatusCode: 200,
+			Status:     "200 OK",
+		},
+		Proxy: &ProxyMetadata{
+			Hostname:      "test-hostname",
+			ListeningAddr: "localhost:8080",
+			LocalTime:     "2025-01-15T12:00:00Z",
+		},
+	}
+
+	// Verify proxy metadata is set
+	if resp.Proxy == nil {
+		t.Fatal("Expected proxy metadata to be set")
+	}
+
+	if resp.Proxy.Hostname != "test-hostname" {
+		t.Errorf("Expected hostname 'test-hostname', got %s", resp.Proxy.Hostname)
+	}
+
+	if resp.Proxy.ListeningAddr != "localhost:8080" {
+		t.Errorf("Expected listening addr 'localhost:8080', got %s", resp.Proxy.ListeningAddr)
+	}
+
+	if resp.Proxy.LocalTime != "2025-01-15T12:00:00Z" {
+		t.Errorf("Expected local time '2025-01-15T12:00:00Z', got %s", resp.Proxy.LocalTime)
+	}
+
+	// Test JSON serialization
+	jsonData, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Failed to marshal response to JSON: %v", err)
+	}
+
+	// Unmarshal and verify
+	var unmarshaled ProxyResponse
+	if err := json.Unmarshal(jsonData, &unmarshaled); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	if unmarshaled.Proxy == nil {
+		t.Fatal("Expected proxy metadata after unmarshal")
+	}
+
+	if unmarshaled.Proxy.Hostname != "test-hostname" {
+		t.Errorf("After unmarshal: expected hostname 'test-hostname', got %s", unmarshaled.Proxy.Hostname)
+	}
+}
+
+func TestDownstreamProxyMetadata(t *testing.T) {
+	// Create a test server that simulates a downstream hop proxy
+	// It returns a response with proxy metadata
+	downstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		// Simulate a hop proxy response with proxy metadata
+		downstreamResp := ProxyResponse{
+			OutgoingRequest: &RequestMetadata{
+				URL:    "http://final-destination.com",
+				Method: "GET",
+			},
+			Response: &ResponseMetadata{
+				StatusCode: 200,
+				Status:     "200 OK",
+				Body:       map[string]string{"result": "success"},
+			},
+			Proxy: &ProxyMetadata{
+				Hostname:      "downstream-hop",
+				ListeningAddr: "downstream:8080",
+				LocalTime:     "2025-01-15T14:00:00Z",
+			},
+		}
+
+		json.NewEncoder(w).Encode(downstreamResp)
+	}))
+	defer downstreamServer.Close()
+
+	// Create parsed request to call the downstream server
+	parsedReq := &parser.ParsedRequest{
+		TargetURL: downstreamServer.URL,
+		Options:   map[string]string{},
+	}
+
+	// Execute request (simulating the first hop calling downstream)
+	result := ExecuteRequestWithContext(parsedReq, "", "", nil)
+
+	// Manually set the proxy metadata for the first hop (normally done by server handler)
+	result.Proxy = &ProxyMetadata{
+		Hostname:      "upstream-hop",
+		ListeningAddr: "upstream:8080",
+		LocalTime:     "2025-01-15T13:00:00Z",
+	}
+
+	// Verify upstream proxy metadata
+	if result.Proxy == nil {
+		t.Fatal("Expected proxy metadata to be set")
+	}
+	if result.Proxy.Hostname != "upstream-hop" {
+		t.Errorf("Expected upstream hostname 'upstream-hop', got %s", result.Proxy.Hostname)
+	}
+
+	// Verify that the response body contains the downstream hop's response
+	// The downstream proxy metadata is naturally nested in the response body
+	bodyMap, ok := result.Response.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("Expected response body to be a map, got %T", result.Response.Body)
+	}
+
+	// Check for downstream proxy metadata
+	proxyField, ok := bodyMap["proxy"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected proxy field in downstream response")
+	}
+
+	if proxyField["hostname"] != "downstream-hop" {
+		t.Errorf("Expected downstream hostname 'downstream-hop', got %v", proxyField["hostname"])
+	}
+
+	if proxyField["listening_addr"] != "downstream:8080" {
+		t.Errorf("Expected downstream listening addr 'downstream:8080', got %v", proxyField["listening_addr"])
+	}
+
+	// Test JSON serialization
+	jsonData, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Failed to marshal result: %v", err)
+	}
+
+	var unmarshaled ProxyResponse
+	if err := json.Unmarshal(jsonData, &unmarshaled); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	if unmarshaled.Proxy == nil {
+		t.Fatal("Expected proxy metadata after unmarshal")
+	}
+	if unmarshaled.Proxy.Hostname != "upstream-hop" {
+		t.Errorf("After unmarshal: expected upstream hostname 'upstream-hop', got %s", unmarshaled.Proxy.Hostname)
 	}
 }

@@ -20,6 +20,19 @@ type RequestMetadata struct {
 	Body       string            `json:"body,omitempty"`
 }
 
+type TLSInfo struct {
+	Version            string `json:"version"`
+	CipherSuite        string `json:"cipher_suite"`
+	ServerName         string `json:"server_name"`
+	NegotiatedProtocol string `json:"negotiated_protocol"`
+}
+
+type ProxyMetadata struct {
+	Hostname      string `json:"hostname"`
+	ListeningAddr string `json:"listening_addr,omitempty"`
+	LocalTime     string `json:"local_time"`
+}
+
 type ResponseMetadata struct {
 	StatusCode int               `json:"status_code"`
 	Status     string            `json:"status"`
@@ -30,26 +43,25 @@ type ResponseMetadata struct {
 	Body       any               `json:"body,omitempty"`
 }
 
-type TLSInfo struct {
-	Version            string `json:"version"`
-	CipherSuite        string `json:"cipher_suite"`
-	ServerName         string `json:"server_name"`
-	NegotiatedProtocol string `json:"negotiated_protocol"`
-}
-
 type ProxyResponse struct {
-	Request  RequestMetadata  `json:"request"`
-	Response ResponseMetadata `json:"response"`
-	Error    string           `json:"error,omitempty"`
+	Proxy           *ProxyMetadata    `json:"proxy,omitempty"`
+	IncomingRequest *RequestMetadata  `json:"incoming_request,omitempty"`
+	OutgoingRequest *RequestMetadata  `json:"outgoing_request,omitempty"`
+	Response        *ResponseMetadata `json:"response,omitempty"`
+	Error           string            `json:"error,omitempty"`
 }
 
 func ExecuteRequest(parsedReq *parser.ParsedRequest) *ProxyResponse {
-	return ExecuteRequestWithClientCert(parsedReq, "", "")
+	return ExecuteRequestWithContext(parsedReq, "", "", nil)
 }
 
 func ExecuteRequestWithClientCert(parsedReq *parser.ParsedRequest, clientCertFile, clientKeyFile string) *ProxyResponse {
+	return ExecuteRequestWithContext(parsedReq, clientCertFile, clientKeyFile, nil)
+}
+
+func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, clientCertFile, clientKeyFile string, incomingHeaders http.Header) *ProxyResponse {
 	resp := &ProxyResponse{
-		Request: RequestMetadata{
+		OutgoingRequest: &RequestMetadata{
 			URL:     parsedReq.TargetURL,
 			Headers: make(map[string]string),
 		},
@@ -60,7 +72,7 @@ func ExecuteRequestWithClientCert(parsedReq *parser.ParsedRequest, clientCertFil
 
 	// Determine HTTP method from options
 	method := parsedReq.Options.GetHTTPMethod()
-	resp.Request.Method = method
+	resp.OutgoingRequest.Method = method
 
 	// Get request body from options
 	bodyReader := parsedReq.Options.GetRequestBody()
@@ -77,8 +89,8 @@ func ExecuteRequestWithClientCert(parsedReq *parser.ParsedRequest, clientCertFil
 			resp.Error = fmt.Sprintf("failed to read request body: %v", err)
 			return resp
 		}
-		resp.Request.BodyLength = len(bodyBytes)
-		resp.Request.Body = string(bodyBytes)
+		resp.OutgoingRequest.BodyLength = len(bodyBytes)
+		resp.OutgoingRequest.Body = string(bodyBytes)
 		// Create a new reader from the bytes for the actual request
 		bodyReader = strings.NewReader(string(bodyBytes))
 	}
@@ -93,10 +105,15 @@ func ExecuteRequestWithClientCert(parsedReq *parser.ParsedRequest, clientCertFil
 	// Apply headers from options
 	parsedReq.Options.ApplyHeaders(req.Header)
 
+	// Apply forwarded headers from incoming request if available
+	if incomingHeaders != nil {
+		parsedReq.Options.ApplyForwardedHeaders(incomingHeaders, req.Header)
+	}
+
 	// Capture request headers
 	for k, v := range req.Header {
 		if len(v) > 0 {
-			resp.Request.Headers[k] = v[0]
+			resp.OutgoingRequest.Headers[k] = v[0]
 		}
 	}
 
@@ -116,7 +133,7 @@ func ExecuteRequestWithClientCert(parsedReq *parser.ParsedRequest, clientCertFil
 	}
 
 	// Build response metadata
-	resp.Response = ResponseMetadata{
+	resp.Response = &ResponseMetadata{
 		StatusCode: httpResp.StatusCode,
 		Status:     httpResp.Status,
 		Headers:    make(map[string]string),
@@ -157,7 +174,7 @@ func ExecuteRequestWithClientCert(parsedReq *parser.ParsedRequest, clientCertFil
 		}
 	}
 
-	resp.Request.Protocol = httpResp.Request.Proto
+	resp.OutgoingRequest.Protocol = httpResp.Request.Proto
 
 	return resp
 }

@@ -26,6 +26,7 @@ const (
 	Insecure       optionName = "insecure"
 	ServerName     optionName = "tls-server-name"
 	FollowRedirect optionName = "follow-redirect"
+	ForwardHeaders optionName = "forward-headers"
 
 	// Server options:
 	Code          optionName = "code"
@@ -50,6 +51,7 @@ var supportedOptions = map[optionName]optionDefinition{
 	Insecure:       {"k", "insecure client call"},
 	ServerName:     {"SN", "TLS server name for client call"},
 	FollowRedirect: {"L", "follow HTTP redirects"},
+	ForwardHeaders: {"FH", "forward headers from incoming request to client call"},
 
 	// Server options:
 	Code:          {"C", "server return status code"},
@@ -176,6 +178,25 @@ func (o Options) applyHeadersByKey(headers string, h http.Header) {
 func (o Options) ApplyHeaders(h http.Header) {
 	for headers := range o.values(Headers) {
 		o.applyHeadersByKey(headers, h)
+	}
+}
+
+// ApplyForwardedHeaders forwards specified headers from the incoming request to the outgoing request
+func (o Options) ApplyForwardedHeaders(incomingHeaders, outgoingHeaders http.Header) {
+	for headerSpec := range o.values(ForwardHeaders) {
+		// Support comma-separated list of headers to forward
+		for headerName := range strings.SplitSeq(headerSpec, ",") {
+			headerName = strings.TrimSpace(headerName)
+			if headerName == "" {
+				continue
+			}
+			// Forward the header if it exists in the incoming request
+			if values := incomingHeaders.Values(headerName); len(values) > 0 {
+				for _, v := range values {
+					outgoingHeaders.Add(headerName, v)
+				}
+			}
+		}
 	}
 }
 
