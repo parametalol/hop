@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 
 	"github.com/parametalol/hop/pkg/common"
@@ -11,15 +10,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func doHop(cfg *config, args []string) {
+// doHop takes the command from the CLI argument.
+func doHop(cfg *config, command string) {
 	response := &common.ServerResponse{}
-	u, err := url.Parse(args[0])
-	if err != nil {
-		log.Panic(err)
-	}
-	rp, err := prepareRequest(u, nil, response)
+	rp, err := prepareRequest(command, nil, response)
 	if rp == nil {
-		log.Panic(err)
+		log.Debug(err)
 		return
 	}
 	clog := hop(cfg, rp)
@@ -31,6 +27,7 @@ func doHop(cfg *config, args []string) {
 	}
 }
 
+// hop executes the request with the given parameters.
 func hop(cfg *config, params *reqParams) *common.CommandLog {
 	clog := &common.CommandLog{
 		Command: "hop",

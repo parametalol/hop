@@ -61,52 +61,6 @@ func execCommand(ctx *cmdContext, req *http.Request, rp *reqParams, cmd string) 
 	return step(ctx, req, rp, cmd, args)
 }
 
-func makeReq(cfg *config, w http.ResponseWriter, response *common.ServerResponse, req *http.Request) error {
-	rp, err := prepareRequest(req.URL, req, response)
-	if rp == nil {
-		return err
-	}
-	clog := hop(cfg, rp)
-	response.Process = append(response.Process, clog)
-	w.WriteHeader(int(rp.code.Set(200)))
-	for h, v := range rp.rheaders {
-		w.Header().Set(h, v)
-	}
-	return nil
-}
-
-func prepareRequest(url *url.URL, req *http.Request, response *common.ServerResponse) (*reqParams, error) {
-	command, path, err := tools.GetFirstCommand(url)
-	if err != nil {
-		return nil, err
-	}
-	rp := newReqParams()
-	ctx := &cmdContext{}
-	for ; strings.HasPrefix(command, "-"); command, path = tools.Pop(path) {
-		clog := execCommand(ctx, req, rp, command)
-		response.Process = append(response.Process, clog)
-		if clog.Error != nil {
-			return nil, clog.Error.Err
-		}
-	}
-	if req != nil && rp.tlsInfo {
-		response.ConnectionState = (*common.ConnectionState)(req.TLS)
-	}
-	if command == "" {
-		return nil, nil
-	}
-	if ctx.skip {
-		clog := &common.CommandLog{}
-		clog.Output.Appendf("Skipping call to %s", command)
-		response.Process = append(response.Process, clog)
-		return nil, nil
-	}
-	if rp.url, err = tools.BuildURL(command, path); err != nil {
-		return nil, err
-	}
-	return rp, nil
-}
-
 func q(c int) {
 	quit <- c
 }

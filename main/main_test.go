@@ -46,7 +46,7 @@ func TestReq(t *testing.T) {
 		headers map[string]string
 	}{
 		"no such command": {command: "-bad command",
-			err: errNoSuchCommand, commands: []string{"-bad command"}, logs: tools.ArrLog{},
+			err: errNoSuchCommand, commands: []string{"-bad%20command"}, logs: tools.ArrLog{},
 		},
 		"code 500": {command: "-code:500",
 			code: 500, commands: []string{"-code:500"}, logs: tools.ArrLog{"Returning code 500"},
@@ -93,7 +93,7 @@ func TestReq(t *testing.T) {
 			}
 			u, err := url.Parse("http://testhost/" + c.command)
 			assert.NoError(t, err)
-			rp, err := prepareRequest(u, nil, &r)
+			rp, err := prepareRequest(u.EscapedPath(), nil, &r)
 			if c.err != nil {
 				require.Error(t, err)
 				require.ErrorIs(t, err, c.err)

@@ -20,13 +20,13 @@ items:
             <<: *labels
         spec:
           containers:
-            - image: smartptr/hop:latest
+            - image: smartptr/hop:0.1.2
               name: *name
               args:
-                - --key "/etc/tls/private/tls.key"
-                - --cert "/etc/tls/private/tls.crt"
-                - --port-http 8080
-                - --port-https 8443
+                - --key="/etc/tls/private/tls.key"
+                - --cert="/etc/tls/private/tls.crt"
+                - --port-http=8080
+                - --port-https=8443
               ports:
                 - containerPort: 8080
                   name: http

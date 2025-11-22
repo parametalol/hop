@@ -16,6 +16,7 @@ func (c *ResultCode) Set(v int) int {
 	return int(*c)
 }
 
+// Pop returns the first path part and the rest.
 func Pop(path string) (string, string) {
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) > 1 {
@@ -35,6 +36,8 @@ func SplitCommandArgs(c string) (string, string) {
 	return cmd[0], args
 }
 
+// GetFirstCommand drops the URL parts before the path and returns first two
+// path parts.
 func GetFirstCommand(u *url.URL) (first string, next string, err error) {
 	first = u.EscapedPath()
 	parts := strings.SplitN(first, "/", 3) // drop leading slash
