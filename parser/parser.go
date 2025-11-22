@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"text/scanner"
 
 	"github.com/parametalol/hop/options"
 )
@@ -24,17 +25,26 @@ func ParsePath(path string) (*ParsedRequest, error) {
 		return nil, nil
 	}
 
-	// Split by /
-	segments := strings.Split(path, "/")
-	if len(segments) == 0 {
-		return nil, fmt.Errorf("no segments in path")
+	var s scanner.Scanner
+	s.Init(strings.NewReader(path))
+	s.Whitespace = 0 // Don't skip any characters
+	s.IsIdentRune = func(ch rune, i int) bool {
+		// Accept any character except '/' as part of a segment
+		return ch != '/'
 	}
 
 	o := make(options.Options)
-	urlStartIndex := -1
+	var urlStartOffset int
 
-	// Parse options at the beginning until we hit a non-option segment
-	for i, segment := range segments {
+	// Scan segments separated by '/'
+	for {
+		tok := s.Scan()
+		if tok == scanner.EOF {
+			break
+		}
+
+		segment := s.TokenText()
+
 		// URL decode the segment
 		decoded, err := url.PathUnescape(segment)
 		if err != nil {
@@ -56,20 +66,25 @@ func ParsePath(path string) (*ParsedRequest, error) {
 			}
 		} else {
 			// First non-option segment - this is where the URL starts
-			urlStartIndex = i
+			urlStartOffset = s.Pos().Offset - len(segment)
 			break
+		}
+
+		// Consume the '/' if present
+		if s.Peek() == '/' {
+			s.Next()
 		}
 	}
 
 	// If we only found options and no URL
-	if urlStartIndex == -1 {
+	if urlStartOffset == 0 && len(o) > 0 {
 		return &ParsedRequest{
 			Options: o,
 		}, nil
 	}
 
-	// Join everything from the URL start onwards
-	remainingPath := strings.Join(segments[urlStartIndex:], "/")
+	// Everything from urlStartOffset onwards is the URL
+	remainingPath := path[urlStartOffset:]
 
 	// Check if the path starts with a scheme by looking for "://"
 	targetURL := remainingPath
@@ -79,13 +94,12 @@ func ParsePath(path string) (*ParsedRequest, error) {
 	}
 
 	// Validate that we have a valid URL
-	parsedURL, err := url.Parse(targetURL)
-	if err != nil {
+	if _, err := url.Parse(targetURL); err != nil {
 		return nil, fmt.Errorf("invalid target URL %q: %w", targetURL, err)
 	}
 
 	return &ParsedRequest{
-		TargetURL: parsedURL.String(),
+		TargetURL: targetURL,
 		Options:   o,
 	}, nil
 }

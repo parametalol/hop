@@ -136,6 +136,12 @@ func TestParsePath(t *testing.T) {
 			errContains: "invalid target URL",
 		},
 		{
+			name:        "unknown option",
+			input:       "/-unknown",
+			wantErr:     true,
+			errContains: "unknown option",
+		},
+		{
 			name:        "URL with query parameters",
 			input:       "/https://example.com/search?q=test",
 			wantURL:     "https://example.com/search?q=test",
