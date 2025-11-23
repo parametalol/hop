@@ -43,23 +43,23 @@ type optionDefinition struct {
 
 var supportedOptions = map[optionName]optionDefinition{
 	// Client options:
-	Headers:        {"H", "client headers"},
-	Method:         {"X", "client call method"},
-	Body:           {"b", "client call body"},
-	BodyFile:       {"bf", "client call body from file"},
-	Timeout:        {"T", "client call timeout"},
-	Insecure:       {"k", "insecure client call"},
-	ServerName:     {"SN", "TLS server name for client call"},
-	FollowRedirect: {"L", "follow HTTP redirects"},
-	MTLS:           {"M", "enable mTLS for client call"},
-	ForwardHeaders: {"FH", "forward headers from incoming request to client call"},
+	Headers:        {"H", "set request headers (format: 'Header: Value', newline-separated)"},
+	Method:         {"X", "set HTTP method (GET, POST, PUT, DELETE, etc.)"},
+	Body:           {"b", "set request body content"},
+	BodyFile:       {"bf", "read request body from file"},
+	Timeout:        {"T", "set request timeout in seconds (default: 30)"},
+	Insecure:       {"k", "skip TLS certificate verification"},
+	ServerName:     {"SN", "set TLS server name for SNI"},
+	FollowRedirect: {"L", "follow HTTP 3xx redirects (default: true)"},
+	MTLS:           {"M", "use mutual TLS authentication"},
+	ForwardHeaders: {"FH", "forward specific headers from incoming to outgoing request (comma-separated)"},
 
 	// Server options:
-	Code:          {"C", "server return status code"},
-	ServerHeaders: {"SH", "server return headers"},
-	Sleep:         {"s", "server sleep duration in seconds before processing"},
-	Exit:          {"E", "exit server process with given code"},
-	Panic:         {"P", "panic server process with given message"},
+	Code:          {"C", "return specific HTTP status code"},
+	ServerHeaders: {"SH", "set response headers (format: 'Header: Value', newline-separated)"},
+	Sleep:         {"s", "delay response by specified seconds"},
+	Exit:          {"E", "terminate server process with exit code"},
+	Panic:         {"P", "crash server process with panic message"},
 }
 
 // Check verifies if opt is a known option
@@ -238,4 +238,34 @@ func (o Options) IsInsecure() bool {
 
 func (o Options) WithMTLS() bool {
 	return getValue(o, MTLS, false, boolean)
+}
+
+// PrintHelp outputs all supported options with their descriptions
+func PrintHelp() string {
+	result := &strings.Builder{}
+	result.WriteString("Supported URL options:\n\n")
+	result.WriteString("Client options (for making requests):\n")
+
+	clientOptions := []optionName{
+		Headers, Method, Body, BodyFile, Timeout, Insecure,
+		ServerName, FollowRedirect, MTLS, ForwardHeaders,
+	}
+
+	for _, opt := range clientOptions {
+		def := supportedOptions[opt]
+		fmt.Fprintf(result, "  -%s, -%s\n      %s\n", opt, def.short, def.help)
+	}
+
+	result.WriteString("\nServer options (for response behavior):\n")
+
+	serverOptions := []optionName{
+		Code, ServerHeaders, Sleep, Exit, Panic,
+	}
+
+	for _, opt := range serverOptions {
+		def := supportedOptions[opt]
+		fmt.Fprintf(result, "  -%s, -%s\n      %s\n", opt, def.short, def.help)
+	}
+
+	return result.String()
 }

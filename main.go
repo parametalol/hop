@@ -14,12 +14,26 @@ import (
 	"time"
 
 	"github.com/parametalol/hop/client"
+	"github.com/parametalol/hop/options"
 	"github.com/parametalol/hop/parser"
 	"github.com/parametalol/hop/server"
 	"github.com/parametalol/hop/tls_tools"
 )
 
 func main() {
+	// Custom usage function
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags] [/options][URL]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Server mode flags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\n%s\n", options.PrintHelp())
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  Start server:\n")
+		fmt.Fprintf(os.Stderr, "    %s --http-port 8080 --https-port 8443\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  Make request with options:\n")
+		fmt.Fprintf(os.Stderr, "    %s /-X=POST/-H=Content-Type:application%%2fjson/-b={\"key\":\"value\"}/https://api.example.com/endpoint\n", os.Args[0])
+	}
+
 	// Command line flags
 	httpPort := flag.Int("http-port", 8080, "HTTP server port")
 	httpsPort := flag.Int("https-port", 0, "HTTPS server port (0 to disable)")
