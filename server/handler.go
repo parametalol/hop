@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"log"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/parametalol/hop/client"
 	"github.com/parametalol/hop/parser"
+	"github.com/parametalol/hop/tls_tools"
 )
 
 func ProxyHandler(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +57,37 @@ func readIncomingRequest(r *http.Request) *client.RequestMetadata {
 		Headers:  make(map[string]string),
 		Protocol: r.Proto,
 	}
+
+	// Capture TLS information if available
+	if r.TLS != nil {
+		tlsInfo := &client.TLSInfo{
+			Version:            tls_tools.GetTLSVersionName(r.TLS.Version),
+			CipherSuite:        tls.CipherSuiteName(r.TLS.CipherSuite),
+			ServerName:         r.TLS.ServerName,
+			NegotiatedProtocol: r.TLS.NegotiatedProtocol,
+		}
+
+		// Check for mTLS (client certificate authentication)
+		if len(r.TLS.PeerCertificates) > 0 {
+			tlsInfo.ClientAuth = true
+			tlsInfo.PeerCertificates = len(r.TLS.PeerCertificates)
+			tlsInfo.VerifiedChains = len(r.TLS.VerifiedChains)
+
+			// Extract Subject Names from peer certificates
+			var snis []string
+			for _, cert := range r.TLS.PeerCertificates {
+				if cert.Subject.CommonName != "" {
+					snis = append(snis, cert.Subject.CommonName)
+				}
+			}
+			if len(snis) > 0 {
+				tlsInfo.PeerCertificatesSNI = snis
+			}
+		}
+
+		md.TLS = tlsInfo
+	}
+
 	for k, v := range r.Header {
 		if len(v) > 0 {
 			md.Headers[k] = v[0]
@@ -110,7 +143,8 @@ func proxyCall(parsedReq *parser.ParsedRequest, proxyResp *client.ProxyResponse,
 
 	// Execute outgoing request if there's a target URL
 	if parsedReq.TargetURL != "" {
-		outgoingResp := client.ExecuteRequestWithContext(parsedReq, "", "", r.Header)
+		outgoingResp := client.ExecuteRequestWithContext(parsedReq,
+			tls_tools.ClientCertFile, tls_tools.ClientKeyFile, r.Header)
 		if outgoingResp != nil {
 			// Copy the outgoing request and response data
 			proxyResp.OutgoingRequest = outgoingResp.OutgoingRequest

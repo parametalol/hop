@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
+	"github.com/parametalol/hop/options"
 	"github.com/parametalol/hop/parser"
+	"github.com/parametalol/hop/tls_tools"
 )
 
 type RequestMetadata struct {
@@ -16,15 +19,20 @@ type RequestMetadata struct {
 	Method     string            `json:"method"`
 	Headers    map[string]string `json:"headers,omitempty"`
 	Protocol   string            `json:"protocol"`
+	TLS        *TLSInfo          `json:"tls,omitempty"`
 	BodyLength int               `json:"body_length"`
 	Body       string            `json:"body,omitempty"`
 }
 
 type TLSInfo struct {
-	Version            string `json:"version"`
-	CipherSuite        string `json:"cipher_suite"`
-	ServerName         string `json:"server_name"`
-	NegotiatedProtocol string `json:"negotiated_protocol"`
+	Version              string   `json:"version"`
+	CipherSuite          string   `json:"cipher_suite"`
+	ServerName           string   `json:"server_name"`
+	NegotiatedProtocol   string   `json:"negotiated_protocol"`
+	PeerCertificates     int      `json:"peer_certificates,omitempty"`
+	VerifiedChains       int      `json:"verified_chains,omitempty"`
+	ClientAuth           bool     `json:"client_auth,omitempty"`
+	PeerCertificatesSNI  []string `json:"peer_certificates_sni,omitempty"`
 }
 
 type ProxyMetadata struct {
@@ -68,7 +76,7 @@ func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, clientCertFile, 
 	}
 
 	// Build HTTP client with options and client cert applied
-	client := parsedReq.Options.BuildHTTPClientWithCert(clientCertFile, clientKeyFile)
+	client := BuildHTTPClientWithCert(parsedReq.Options, clientCertFile, clientKeyFile)
 
 	// Determine HTTP method from options
 	method := parsedReq.Options.GetHTTPMethod()
@@ -167,7 +175,7 @@ func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, clientCertFile, 
 	// Capture TLS information if available
 	if httpResp.TLS != nil {
 		resp.Response.TLS = &TLSInfo{
-			Version:            getTLSVersionName(httpResp.TLS.Version),
+			Version:            tls_tools.GetTLSVersionName(httpResp.TLS.Version),
 			CipherSuite:        tls.CipherSuiteName(httpResp.TLS.CipherSuite),
 			ServerName:         httpResp.TLS.ServerName,
 			NegotiatedProtocol: httpResp.TLS.NegotiatedProtocol,
@@ -179,17 +187,76 @@ func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, clientCertFile, 
 	return resp
 }
 
-func getTLSVersionName(version uint16) string {
-	switch version {
-	case tls.VersionTLS10:
-		return "TLS 1.0"
-	case tls.VersionTLS11:
-		return "TLS 1.1"
-	case tls.VersionTLS12:
-		return "TLS 1.2"
-	case tls.VersionTLS13:
-		return "TLS 1.3"
-	default:
-		return fmt.Sprintf("Unknown (0x%04x)", version)
+// BuildHTTPClientWithCert creates an HTTP client with options and client cert applied
+func BuildHTTPClientWithCert(o options.Options, clientCertFile, clientKeyFile string) *http.Client {
+	client := &http.Client{
+		Timeout: o.GetTimeout(),
 	}
+
+	// Configure redirect policy - by default Go follows up to 10 redirects
+	// If follow-redirect is explicitly set to false, don't follow redirects
+	if !o.IsFollowRedirect() {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+
+	// Build TLS config if needed
+	tlsConfig := buildTLSConfig(o, clientCertFile, clientKeyFile)
+	if tlsConfig != nil {
+		client.Transport = &http.Transport{
+			TLSClientConfig: tlsConfig,
+		}
+	}
+
+	return client
+}
+
+// buildTLSConfig creates a TLS config from options and client certificate files
+func buildTLSConfig(o options.Options, clientCertFile, clientKeyFile string) *tls.Config {
+	var tlsConfig *tls.Config
+
+	insecure := o.IsInsecure()
+	useMTLS := o.WithMTLS()
+	hasCertFiles := clientCertFile != "" && clientKeyFile != ""
+	serverName := o.GetServerName()
+
+	// If we need TLS config, create it
+	if insecure || useMTLS || serverName != "" {
+		tlsConfig = &tls.Config{
+			InsecureSkipVerify: insecure,
+		}
+		tlsConfig.ServerName = serverName
+
+		// Handle mTLS
+		if useMTLS {
+			var cert tls.Certificate
+			var err error
+
+			if hasCertFiles {
+				// Load client certificate from files
+				cert, err = tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to load client certificate from files: %v\n", err)
+					// Try to generate runtime certificate as fallback
+					cert, err = tls_tools.GenerateClientCert()
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to generate client certificate: %v\n", err)
+					}
+				}
+			} else {
+				// Generate client certificate at runtime
+				cert, err = tls_tools.GenerateClientCert()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to generate client certificate: %v\n", err)
+				}
+			}
+
+			if err == nil {
+				tlsConfig.Certificates = []tls.Certificate{cert}
+			}
+		}
+	}
+
+	return tlsConfig
 }

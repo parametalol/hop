@@ -16,6 +16,7 @@ import (
 	"github.com/parametalol/hop/client"
 	"github.com/parametalol/hop/parser"
 	"github.com/parametalol/hop/server"
+	"github.com/parametalol/hop/tls_tools"
 )
 
 func main() {
@@ -57,6 +58,21 @@ func main() {
 
 	if err := config.Validate(); err != nil {
 		log.Fatalf("Invalid configuration: %v", err)
+	}
+
+	// Initialize TLS tools (generate keys for runtime certificate generation)
+	if err := tls_tools.Init(); err != nil {
+		log.Fatalf("Failed to initialize TLS tools: %v", err)
+	}
+
+	// Set global client certificate paths
+	// Fall back to server cert/key if client cert/key not provided
+	if *clientCertFile != "" && *clientKeyFile != "" {
+		tls_tools.ClientCertFile = *clientCertFile
+		tls_tools.ClientKeyFile = *clientKeyFile
+	} else if *certFile != "" && *keyFile != "" {
+		tls_tools.ClientCertFile = *certFile
+		tls_tools.ClientKeyFile = *keyFile
 	}
 
 	// Create HTTP handler

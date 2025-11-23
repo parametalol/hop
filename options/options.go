@@ -1,7 +1,6 @@
 package options
 
 import (
-	"crypto/tls"
 	"fmt"
 	"io"
 	"iter"
@@ -27,6 +26,7 @@ const (
 	ServerName     optionName = "tls-server-name"
 	FollowRedirect optionName = "follow-redirect"
 	ForwardHeaders optionName = "forward-headers"
+	MTLS           optionName = "mtls"
 
 	// Server options:
 	Code          optionName = "code"
@@ -51,6 +51,7 @@ var supportedOptions = map[optionName]optionDefinition{
 	Insecure:       {"k", "insecure client call"},
 	ServerName:     {"SN", "TLS server name for client call"},
 	FollowRedirect: {"L", "follow HTTP redirects"},
+	MTLS:           {"M", "enable mTLS for client call"},
 	ForwardHeaders: {"FH", "forward headers from incoming request to client call"},
 
 	// Server options:
@@ -89,12 +90,20 @@ func (o Options) values(optName optionName) iter.Seq[string] {
 	}
 }
 
+func str(s string) string { return s }
+
+func boolean(s string) bool { return s == "true" || s == "1" }
+
+func getValue[T any](o Options, name optionName, def T, f func(string) T) T {
+	for value := range o.values(name) {
+		return f(value)
+	}
+	return def
+}
+
 // GetHTTPMethod determines the HTTP method from options
 func (o Options) GetHTTPMethod() string {
-	for method := range o.values(Method) {
-		return strings.ToUpper(method)
-	}
-	return "GET"
+	return getValue(o, Method, http.MethodGet, strings.ToUpper)
 }
 
 // GetRequestBody extracts the request body from options
@@ -112,34 +121,33 @@ func (o Options) GetRequestBody() io.Reader {
 
 	// Fall back to body option
 	for body := range o.values(Body) {
-		return strings.NewReader(body)
+		if body != "" {
+			return strings.NewReader(body)
+		}
 	}
 	return nil
 }
 
 // GetHTTPStatus determines the HTTP method from options
 func (o Options) GetHTTPStatus() int {
-	// Check for method options in order of precedence
-	for val := range o.values(Code) {
+	return getValue(o, Code, http.StatusOK, func(val string) int {
 		code, err := strconv.Atoi(val)
 		if err != nil {
 			return http.StatusNotAcceptable
 		}
 		return code
-	}
-	return http.StatusOK
+	})
 }
 
 // GetSleepDuration returns the sleep duration in seconds, or 0 if not set
 func (o Options) GetSleepDuration() time.Duration {
-	for val := range o.values(Sleep) {
+	return getValue(o, Sleep, 0, func(val string) time.Duration {
 		seconds, err := strconv.ParseFloat(val, 64)
 		if err != nil || seconds < 0 {
 			return 0
 		}
 		return time.Duration(seconds * float64(time.Second))
-	}
-	return 0
+	})
 }
 
 // GetExitCode returns the exit code if the exit option is set, and a bool indicating if it was set
@@ -157,7 +165,7 @@ func (o Options) GetExitCode() (int, bool) {
 // GetPanicMessage returns the panic message if the panic option is set, and a bool indicating if it was set
 func (o Options) GetPanicMessage() (string, bool) {
 	for val := range o.values(Panic) {
-		if val == "" || val == "true" || val == "1" {
+		if val == "" || boolean(val) {
 			return "server panic triggered by request option", true
 		}
 		return val, true
@@ -207,79 +215,27 @@ func (o Options) ApplyServerHeaders(h http.Header) {
 	}
 }
 
-// BuildHTTPClientWithCert creates an HTTP client with options and client cert applied
-func (o Options) BuildHTTPClientWithCert(clientCertFile, clientKeyFile string) *http.Client {
-	// Get timeout from options, default to 30 seconds
-	timeout := 30 * time.Second
-	for timeoutStr := range o.values(Timeout) {
-		if timeoutSec, err := strconv.Atoi(timeoutStr); err == nil && timeoutSec > 0 {
-			timeout = time.Duration(timeoutSec) * time.Second
-		}
-	}
-
-	client := &http.Client{
-		Timeout: timeout,
-	}
-
-	// Configure redirect policy - by default Go follows up to 10 redirects
-	// If follow-redirect is explicitly set to false, don't follow redirects
-	followRedirect := true
-	for val := range o.values(FollowRedirect) {
-		followRedirect = val == "true" || val == "1"
-	}
-	if !followRedirect {
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	}
-
-	// Build TLS config if needed
-	tlsConfig := o.buildTLSConfig(clientCertFile, clientKeyFile)
-	if tlsConfig != nil {
-		client.Transport = &http.Transport{
-			TLSClientConfig: tlsConfig,
-		}
-	}
-
-	return client
+func (o Options) IsFollowRedirect() bool {
+	return getValue(o, FollowRedirect, true, boolean)
 }
 
-// buildTLSConfig creates a TLS config from options and client certificate files
-func (o Options) buildTLSConfig(clientCertFile, clientKeyFile string) *tls.Config {
-	var tlsConfig *tls.Config
-
-	// Check for insecure option
-	insecure := false
-	for val := range o.values(Insecure) {
-		insecure = val == "true" || val == "1"
-	}
-
-	// Check if client certificate files are provided
-	hasCert := clientCertFile != "" && clientKeyFile != ""
-
-	// Check for TLS server name override
-	var serverName string
-	for serverName = range o.values(ServerName) {
-	}
-
-	// If we need TLS config, create it
-	if insecure || hasCert || serverName != "" {
-		tlsConfig = &tls.Config{
-			InsecureSkipVerify: insecure,
+func (o Options) GetTimeout() time.Duration {
+	return getValue(o, Timeout, 30*time.Second, func(val string) time.Duration {
+		if timeoutSec, err := strconv.Atoi(val); err == nil && timeoutSec > 0 {
+			return time.Duration(timeoutSec) * time.Second
 		}
-		tlsConfig.ServerName = serverName
+		return 30 * time.Second
+	})
+}
 
-		// Load client certificate if provided
-		if hasCert {
-			cert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
-			if err != nil {
-				// Log error but don't fail - just skip mTLS
-				fmt.Fprintf(os.Stderr, "Warning: failed to load client certificate: %v\n", err)
-			} else {
-				tlsConfig.Certificates = []tls.Certificate{cert}
-			}
-		}
-	}
+func (o Options) GetServerName() string {
+	return getValue(o, ServerName, "", str)
+}
 
-	return tlsConfig
+func (o Options) IsInsecure() bool {
+	return getValue(o, Insecure, false, boolean)
+}
+
+func (o Options) WithMTLS() bool {
+	return getValue(o, MTLS, false, boolean)
 }

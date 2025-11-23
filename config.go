@@ -4,6 +4,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
+
+	"github.com/parametalol/hop/tls_tools"
 )
 
 type Config struct {
@@ -42,7 +44,7 @@ func (c *Config) GetTLSConfig() (*tls.Config, error) {
 	} else {
 		// Generate self-signed certificate at runtime
 		log.Println("No TLS certificate provided, generating self-signed certificate")
-		cert, err = GenerateSelfSignedCert(c.TLS.DNSNames, c.TLS.IPAddresses)
+		cert, err = tls_tools.GenerateSelfSignedCert(c.TLS.DNSNames, c.TLS.IPAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate self-signed certificate: %w", err)
 		}
