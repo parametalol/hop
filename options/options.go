@@ -23,7 +23,6 @@ const (
 	clientOptMethod         option = iota
 	clientOptBody           option = iota
 	clientOptBodyFile       option = iota
-	clientOptDropBody       option = iota
 	clientOptTimeout        option = iota
 	clientOptInsecure       option = iota
 	clientOptServerName     option = iota
@@ -32,11 +31,12 @@ const (
 	clientOptMTLS           option = iota
 
 	// Server options:
-	serverOptCode    option = iota
-	serverOptHeaders option = iota
-	serverOptSleep   option = iota
-	serverOptExit    option = iota
-	serverOptPanic   option = iota
+	serverOptCode     option = iota
+	serverOptHeaders  option = iota
+	serverOptSleep    option = iota
+	serverOptDropBody option = iota
+	serverOptExit     option = iota
+	serverOptPanic    option = iota
 )
 
 type optionDefinition struct {
@@ -57,27 +57,27 @@ type optionGroup struct {
 
 var optionGroups = []optionGroup{
 	{
-		name: "Client Options",
+		name: "Client Request Options",
 		options: []optionEntry{
 			{clientOptHeaders, optionDefinition{"headers", "H", "set request headers (format: 'Header: Value', newline-separated)"}},
 			{clientOptMethod, optionDefinition{"method", "X", "set HTTP method (GET, POST, PUT, DELETE, etc.)"}},
 			{clientOptBody, optionDefinition{"body", "B", "set request body content"}},
 			{clientOptBodyFile, optionDefinition{"body-file", "BF", "read request body from file"}},
-			{clientOptDropBody, optionDefinition{"drop-body", "DB", "drop the response body"}},
 			{clientOptTimeout, optionDefinition{"timeout", "T", "set request timeout in seconds (default: 30)"}},
 			{clientOptInsecure, optionDefinition{"insecure", "k", "skip TLS certificate verification"}},
 			{clientOptServerName, optionDefinition{"tls-server-name", "SN", "set TLS server name for SNI"}},
 			{clientOptFollowRedirect, optionDefinition{"follow-redirect", "L", "follow HTTP 3xx redirects (default: true)"}},
-			{clientOptForwardHeaders, optionDefinition{"forward-headers", "M", "use mutual TLS authentication"}},
-			{clientOptMTLS, optionDefinition{"mtls", "FH", "forward specific headers from incoming to outgoing request (comma-separated)"}},
+			{clientOptMTLS, optionDefinition{"mtls", "M", "use mutual TLS authentication"}},
+			{clientOptForwardHeaders, optionDefinition{"forward-headers", "FH", "forward specific headers from incoming to outgoing request (comma-separated)"}},
 		},
 	},
 	{
-		name: "Server Options",
+		name: "Server Response Options",
 		options: []optionEntry{
 			{serverOptCode, optionDefinition{"code", "C", "return specific HTTP status code"}},
 			{serverOptHeaders, optionDefinition{"server-headers", "SH", "set response headers (format: 'Header: Value', newline-separated)"}},
 			{serverOptSleep, optionDefinition{"sleep", "S", "delay response by specified seconds"}},
+			{serverOptDropBody, optionDefinition{"drop-body", "DB", "drop the response body"}},
 			{serverOptExit, optionDefinition{"exit", "E", "terminate server process with exit code"}},
 			{serverOptPanic, optionDefinition{"panic", "P", "crash server process with panic message"}},
 		},
@@ -273,7 +273,7 @@ func (o Options) WithMTLS() bool {
 }
 
 func (o Options) IsDropBody() bool {
-	return getValue(o, clientOptDropBody, false, boolean)
+	return getValue(o, serverOptDropBody, false, boolean)
 }
 
 // PrintHelp outputs all supported options with their descriptions
