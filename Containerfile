@@ -9,4 +9,4 @@ FROM scratch
 ENV PORT=8080 PORT_HTTPS=8443
 EXPOSE ${PORT} ${PORT_HTTPS}
 COPY --from=builder /hop /
-ENTRYPOINT [ "/hop"]
+ENTRYPOINT ["/hop"]
