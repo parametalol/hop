@@ -74,6 +74,7 @@ func main() {
 	} else if *certFile != "" && *keyFile != "" {
 		tls_tools.ClientCertFile = *certFile
 		tls_tools.ClientKeyFile = *keyFile
+		log.Printf("Using client key from %q and certificate from %q", *keyFile, *certFile)
 	}
 
 	// Load client certificate from files if provided, otherwise use runtime-generated

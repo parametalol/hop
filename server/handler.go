@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"io"
-	"log"
+	logPkg "log"
 	"net/http"
 	"os"
 	"time"
@@ -13,6 +13,8 @@ import (
 	"github.com/parametalol/hop/parser"
 	"github.com/parametalol/hop/tls_tools"
 )
+
+var log = logPkg.New(os.Stdout, "server: ", logPkg.LstdFlags)
 
 func ProxyHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received %s request to %s", r.Method, r.URL.Path)
