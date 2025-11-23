@@ -2,7 +2,7 @@ FROM golang:1.25 AS builder
 
 ENV CGO_ENABLED=0 GOOS=linux
 WORKDIR /build
-RUN --mount=type=bind,target=/build go build -a -o /hop ./main
+RUN --mount=type=bind,target=/build go build -a -o /hop .
 
 FROM scratch
 
