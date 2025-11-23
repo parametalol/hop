@@ -29,6 +29,7 @@ const (
 	clientOptFollowRedirect option = iota
 	clientOptForwardHeaders option = iota
 	clientOptMTLS           option = iota
+	clientOptHTTPVersion    option = iota
 
 	// Server options:
 	serverOptCode     option = iota
@@ -69,6 +70,7 @@ var optionGroups = []optionGroup{
 			{clientOptFollowRedirect, optionDefinition{"follow-redirect", "L", "follow HTTP 3xx redirects (default: true)"}},
 			{clientOptMTLS, optionDefinition{"mtls", "M", "use mutual TLS authentication"}},
 			{clientOptForwardHeaders, optionDefinition{"forward-headers", "FH", "forward specific headers from incoming to outgoing request (comma-separated)"}},
+			{clientOptHTTPVersion, optionDefinition{"http-version", "HV", "force HTTP version (1.1, 2, or 3)"}},
 		},
 	},
 	{
@@ -274,6 +276,11 @@ func (o Options) WithMTLS() bool {
 
 func (o Options) IsDropBody() bool {
 	return getValue(o, serverOptDropBody, false, boolean)
+}
+
+// GetHTTPVersion returns the HTTP version to use, or empty string for default
+func (o Options) GetHTTPVersion() string {
+	return getValue(o, clientOptHTTPVersion, "", str)
 }
 
 // PrintHelp outputs all supported options with their descriptions

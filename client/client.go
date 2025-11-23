@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/parametalol/hop/options"
@@ -158,10 +159,35 @@ func BuildHTTPClient(o options.Options, certManager *tls_tools.CertManager) *htt
 		}
 	}
 
+	// Build transport with TLS config and HTTP version settings
+	var transport *http.Transport
 	if tlsConfig := buildTLSConfig(o, certManager); tlsConfig != nil {
-		client.Transport = &http.Transport{
+		transport = &http.Transport{
 			TLSClientConfig: tlsConfig,
 		}
+	}
+
+	// Configure HTTP version if specified
+	if httpVersion := o.GetHTTPVersion(); httpVersion != "" {
+		if transport == nil {
+			transport = &http.Transport{}
+		}
+		switch httpVersion {
+		case "1.1":
+			transport.ForceAttemptHTTP2 = false
+			transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+		case "2":
+			transport.ForceAttemptHTTP2 = true
+		case "3":
+			// HTTP/3 requires a different transport (http3.RoundTripper)
+			// For now, log a warning that HTTP/3 is not yet supported
+			fmt.Fprintf(os.Stderr, "Warning: HTTP/3 is not yet supported, falling back to HTTP/2\n")
+			transport.ForceAttemptHTTP2 = true
+		}
+	}
+
+	if transport != nil {
+		client.Transport = transport
 	}
 
 	return client
