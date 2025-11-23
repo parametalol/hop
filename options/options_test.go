@@ -11,7 +11,7 @@ func TestOptionsValues(t *testing.T) {
 	opts := make(Options)
 	opts["method"] = "GET"
 	opts["X"] = "POST"
-	methods := slices.Collect(opts.values(Method))
+	methods := slices.Collect(opts.values(clientOptMethod))
 	if len(methods) != 2 || methods[0] != "GET" || methods[1] != "POST" {
 		t.Errorf("options values returned %v, want: [GET, POST]", methods)
 	}
