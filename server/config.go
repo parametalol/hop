@@ -31,12 +31,11 @@ func (c *Config) Validate() error {
 }
 
 func (c *Config) GetTLSConfig() (*tls.Config, error) {
-	var cert tls.Certificate
 	var err error
 
 	// If cert/key files are provided, load them
 	if c.TLS.CertFile != "" && c.TLS.KeyFile != "" {
-		cert, err = tls.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile)
+		tls_tools.ServerCert, err = tls.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
 		}
@@ -44,7 +43,7 @@ func (c *Config) GetTLSConfig() (*tls.Config, error) {
 	} else {
 		// Generate self-signed certificate at runtime
 		log.Println("No TLS certificate provided, generating self-signed certificate")
-		cert, err = tls_tools.GenerateSelfSignedCert(c.TLS.DNSNames, c.TLS.IPAddresses)
+		tls_tools.ServerCert, err = tls_tools.GenerateSelfSignedCert(c.TLS.DNSNames, c.TLS.IPAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate self-signed certificate: %w", err)
 		}
@@ -57,7 +56,7 @@ func (c *Config) GetTLSConfig() (*tls.Config, error) {
 	}
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
+		Certificates: []tls.Certificate{tls_tools.ServerCert},
 		MinVersion:   tls.VersionTLS12, // Default minimum
 		MaxVersion:   tls.VersionTLS13, // Default maximum
 	}

@@ -21,6 +21,7 @@ var (
 	ClientKeyFile  string
 
 	ClientCert tls.Certificate
+	ServerCert tls.Certificate
 
 	privateKey      *ecdsa.PrivateKey
 	privateKeyBytes []byte

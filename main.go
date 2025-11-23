@@ -89,6 +89,8 @@ func main() {
 	// Create HTTP handler
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", server.ProxyHandler)
+	mux.HandleFunc("/.well-known/server-cert.pem", server.ServerCertHandler(config))
+	mux.HandleFunc("/.well-known/client-cert.pem", server.ClientCertHandler())
 
 	// Channel to collect server errors
 	errChan := make(chan error, 2)

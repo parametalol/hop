@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/parametalol/hop/client"
 	"github.com/parametalol/hop/parser"
+	"github.com/parametalol/hop/tls_tools"
 )
 
 func ProxyHandler(w http.ResponseWriter, r *http.Request) {
@@ -132,5 +134,45 @@ func respondError(w http.ResponseWriter, statusCode int, message string) {
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("Error encoding error response: %v", err)
+	}
+}
+
+// ServerCertHandler returns the server certificate in PEM format
+func ServerCertHandler(config *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-pem-file")
+
+		// Return the stored server certificate
+		if len(tls_tools.ServerCert.Certificate) == 0 {
+			http.Error(w, "No server certificate available", http.StatusInternalServerError)
+			return
+		}
+
+		certPEM := pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: tls_tools.ServerCert.Certificate[0],
+		})
+
+		w.Write(certPEM)
+	}
+}
+
+// ClientCertHandler returns the client certificate in PEM format
+func ClientCertHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-pem-file")
+
+		// Return the pre-loaded client certificate
+		if len(tls_tools.ClientCert.Certificate) == 0 {
+			http.Error(w, "No client certificate available", http.StatusInternalServerError)
+			return
+		}
+
+		certPEM := pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: tls_tools.ClientCert.Certificate[0],
+		})
+
+		w.Write(certPEM)
 	}
 }
