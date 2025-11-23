@@ -20,30 +20,53 @@ var (
 	ClientCertFile string
 	ClientKeyFile  string
 
-	PrivateKey *ecdsa.PrivateKey
+	ClientCert tls.Certificate
+
+	privateKey      *ecdsa.PrivateKey
+	privateKeyBytes []byte
 )
 
 func Init() error {
 	var err error
-	if PrivateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader); err != nil {
+	if privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader); err != nil {
 		return fmt.Errorf("failed to generate private key: %w", err)
+	}
+	if privateKeyBytes, err = x509.MarshalECPrivateKey(privateKey); err != nil {
+		return fmt.Errorf("failed to marshal private key: %w", err)
+	}
+	if ClientCert, err = GenerateClientCert(); err != nil {
+		return fmt.Errorf("failed to generate client certificate")
 	}
 	return nil
 }
 
-// GenerateSelfSignedCert generates a self-signed certificate in memory
-func GenerateSelfSignedCert(dnsNamesCSV, ipAddrsCSV string) (tls.Certificate, error) {
-	if PrivateKey == nil {
-		return tls.Certificate{}, errors.New("missing private key")
-	}
-
-	// Create certificate template
+func newCertificateTemplate(cn string, usage x509.ExtKeyUsage) (*x509.Certificate, error) {
 	notBefore := time.Now()
 	notAfter := notBefore.Add(365 * 24 * time.Hour)
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("failed to generate serial number: %w", err)
+		return nil, fmt.Errorf("failed to generate serial number: %w", err)
+	}
+
+	return &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName:   cn,
+			Organization: []string{"hop-proxy"},
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{usage},
+		BasicConstraintsValid: true,
+	}, nil
+}
+
+// GenerateSelfSignedCert generates a self-signed certificate in memory
+func GenerateSelfSignedCert(dnsNamesCSV, ipAddrsCSV string) (tls.Certificate, error) {
+	if privateKey == nil || len(privateKeyBytes) == 0 {
+		return tls.Certificate{}, errors.New("missing private key")
 	}
 
 	// Parse DNS names from comma-separated string
@@ -51,7 +74,7 @@ func GenerateSelfSignedCert(dnsNamesCSV, ipAddrsCSV string) (tls.Certificate, er
 	var commonName string = "localhost"
 
 	if dnsNamesCSV != "" {
-		for _, name := range strings.Split(dnsNamesCSV, ",") {
+		for name := range strings.SplitSeq(dnsNamesCSV, ",") {
 			name = strings.TrimSpace(name)
 			if name != "" {
 				dnsNames = append(dnsNames, name)
@@ -66,7 +89,7 @@ func GenerateSelfSignedCert(dnsNamesCSV, ipAddrsCSV string) (tls.Certificate, er
 	// Parse IP addresses from comma-separated string
 	ipAddresses := []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback}
 	if ipAddrsCSV != "" {
-		for _, ipStr := range strings.Split(ipAddrsCSV, ",") {
+		for ipStr := range strings.SplitSeq(ipAddrsCSV, ",") {
 			ipStr = strings.TrimSpace(ipStr)
 			if ipStr != "" {
 				ip := net.ParseIP(ipStr)
@@ -77,37 +100,27 @@ func GenerateSelfSignedCert(dnsNamesCSV, ipAddrsCSV string) (tls.Certificate, er
 		}
 	}
 
-	template := x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			CommonName:   commonName,
-			Organization: []string{"Auto-generated"},
-		},
-		NotBefore:             notBefore,
-		NotAfter:              notAfter,
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		DNSNames:              dnsNames,
-		IPAddresses:           ipAddresses,
+	template, err := newCertificateTemplate(commonName, x509.ExtKeyUsageServerAuth)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("failed to generate server certificate template: %w", err)
 	}
 
-	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template,
-		&PrivateKey.PublicKey, PrivateKey)
+	template.DNSNames = dnsNames
+	template.IPAddresses = ipAddresses
+
+	return newCertificate(template)
+}
+
+func newCertificate(template *x509.Certificate) (tls.Certificate, error) {
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template,
+		&privateKey.PublicKey, privateKey)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("failed to create certificate: %w", err)
 	}
 
-	// Encode private key
-	privBytes, err := x509.MarshalECPrivateKey(PrivateKey)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("failed to marshal private key: %w", err)
-	}
-
 	privPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "EC PRIVATE KEY",
-		Bytes: privBytes,
+		Bytes: privateKeyBytes,
 	})
 
 	certPEM := pem.EncodeToMemory(&pem.Block{
@@ -120,68 +133,19 @@ func GenerateSelfSignedCert(dnsNamesCSV, ipAddrsCSV string) (tls.Certificate, er
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("failed to parse generated certificate: %w", err)
 	}
-
 	return cert, nil
 }
 
 // GenerateClientCert generates a client certificate for mTLS in memory
 func GenerateClientCert() (tls.Certificate, error) {
-	if PrivateKey == nil {
+	if privateKey == nil || len(privateKeyBytes) == 0 {
 		return tls.Certificate{}, errors.New("missing private key")
 	}
-
-	// Create certificate template for client authentication
-	notBefore := time.Now()
-	notAfter := notBefore.Add(365 * 24 * time.Hour)
-
-	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	template, err := newCertificateTemplate("hop-client", x509.ExtKeyUsageClientAuth)
 	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("failed to generate serial number: %w", err)
+		return tls.Certificate{}, fmt.Errorf("failed to generate client certificate template: %w", err)
 	}
-
-	template := x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			CommonName:   "hop-client",
-			Organization: []string{"Hop Auto-generated Client"},
-		},
-		NotBefore:             notBefore,
-		NotAfter:              notAfter,
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
-	}
-
-	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template,
-		&PrivateKey.PublicKey, PrivateKey)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("failed to create client certificate: %w", err)
-	}
-
-	// Encode private key
-	privBytes, err := x509.MarshalECPrivateKey(PrivateKey)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("failed to marshal private key: %w", err)
-	}
-
-	privPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "EC PRIVATE KEY",
-		Bytes: privBytes,
-	})
-
-	certPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certDER,
-	})
-
-	// Parse the certificate
-	cert, err := tls.X509KeyPair(certPEM, privPEM)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("failed to parse generated client certificate: %w", err)
-	}
-
-	return cert, nil
+	return newCertificate(template)
 }
 
 func GetTLSVersionName(version uint16) string {
@@ -196,5 +160,20 @@ func GetTLSVersionName(version uint16) string {
 		return "TLS 1.3"
 	default:
 		return fmt.Sprintf("Unknown (0x%04x)", version)
+	}
+}
+
+func ParseTLSVersion(version string) uint16 {
+	switch version {
+	case "1.0":
+		return tls.VersionTLS10
+	case "1.1":
+		return tls.VersionTLS11
+	case "1.2":
+		return tls.VersionTLS12
+	case "1.3":
+		return tls.VersionTLS13
+	default:
+		return tls.VersionTLS12
 	}
 }

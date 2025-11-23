@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/parametalol/hop/options"
@@ -14,69 +13,19 @@ import (
 	"github.com/parametalol/hop/tls_tools"
 )
 
-type RequestMetadata struct {
-	URL        string            `json:"url"`
-	Method     string            `json:"method"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Protocol   string            `json:"protocol"`
-	TLS        *TLSInfo          `json:"tls,omitempty"`
-	BodyLength int               `json:"body_length"`
-	Body       string            `json:"body,omitempty"`
-}
-
-type TLSInfo struct {
-	Version              string   `json:"version"`
-	CipherSuite          string   `json:"cipher_suite"`
-	ServerName           string   `json:"server_name"`
-	NegotiatedProtocol   string   `json:"negotiated_protocol"`
-	PeerCertificates     int      `json:"peer_certificates,omitempty"`
-	VerifiedChains       int      `json:"verified_chains,omitempty"`
-	ClientAuth           bool     `json:"client_auth,omitempty"`
-	PeerCertificatesSNI  []string `json:"peer_certificates_sni,omitempty"`
-}
-
-type ProxyMetadata struct {
-	Hostname      string `json:"hostname"`
-	ListeningAddr string `json:"listening_addr,omitempty"`
-	LocalTime     string `json:"local_time"`
-}
-
-type ResponseMetadata struct {
-	StatusCode int               `json:"status_code"`
-	Status     string            `json:"status"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Protocol   string            `json:"protocol"`
-	TLS        *TLSInfo          `json:"tls,omitempty"`
-	BodyLength int               `json:"body_length"`
-	Body       any               `json:"body,omitempty"`
-}
-
-type ProxyResponse struct {
-	Proxy           *ProxyMetadata    `json:"proxy,omitempty"`
-	IncomingRequest *RequestMetadata  `json:"incoming_request,omitempty"`
-	OutgoingRequest *RequestMetadata  `json:"outgoing_request,omitempty"`
-	Response        *ResponseMetadata `json:"response,omitempty"`
-	Error           string            `json:"error,omitempty"`
-}
-
 func ExecuteRequest(parsedReq *parser.ParsedRequest) *ProxyResponse {
-	return ExecuteRequestWithContext(parsedReq, "", "", nil)
+	return ExecuteRequestWithContext(parsedReq, nil)
 }
 
-func ExecuteRequestWithClientCert(parsedReq *parser.ParsedRequest, clientCertFile, clientKeyFile string) *ProxyResponse {
-	return ExecuteRequestWithContext(parsedReq, clientCertFile, clientKeyFile, nil)
-}
-
-func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, clientCertFile, clientKeyFile string, incomingHeaders http.Header) *ProxyResponse {
+func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, incomingHeaders http.Header) *ProxyResponse {
 	resp := &ProxyResponse{
 		OutgoingRequest: &RequestMetadata{
-			URL:     parsedReq.TargetURL,
-			Headers: make(map[string]string),
+			URL: parsedReq.TargetURL,
 		},
 	}
 
-	// Build HTTP client with options and client cert applied
-	client := BuildHTTPClientWithCert(parsedReq.Options, clientCertFile, clientKeyFile)
+	// Build HTTP client with options applied
+	client := BuildHTTPClient(parsedReq.Options)
 
 	// Determine HTTP method from options
 	method := parsedReq.Options.GetHTTPMethod()
@@ -118,12 +67,9 @@ func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, clientCertFile, 
 		parsedReq.Options.ApplyForwardedHeaders(incomingHeaders, req.Header)
 	}
 
-	// Capture request headers
-	for k, v := range req.Header {
-		if len(v) > 0 {
-			resp.OutgoingRequest.Headers[k] = v[0]
-		}
-	}
+	resp.OutgoingRequest.TLS = ReadTLSInfo(req.TLS)
+	resp.OutgoingRequest.Headers = req.Header
+	resp.OutgoingRequest.Protocol = req.Proto
 
 	// Execute request
 	httpResp, err := client.Do(req)
@@ -147,6 +93,7 @@ func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, clientCertFile, 
 		Headers:    make(map[string]string),
 		Protocol:   httpResp.Proto,
 		BodyLength: len(bodyBytes),
+		TLS:        ReadTLSInfo(httpResp.TLS),
 	}
 
 	// Capture response headers
@@ -172,23 +119,42 @@ func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, clientCertFile, 
 		}
 	}
 
-	// Capture TLS information if available
-	if httpResp.TLS != nil {
-		resp.Response.TLS = &TLSInfo{
-			Version:            tls_tools.GetTLSVersionName(httpResp.TLS.Version),
-			CipherSuite:        tls.CipherSuiteName(httpResp.TLS.CipherSuite),
-			ServerName:         httpResp.TLS.ServerName,
-			NegotiatedProtocol: httpResp.TLS.NegotiatedProtocol,
-		}
-	}
-
-	resp.OutgoingRequest.Protocol = httpResp.Request.Proto
-
 	return resp
 }
 
-// BuildHTTPClientWithCert creates an HTTP client with options and client cert applied
-func BuildHTTPClientWithCert(o options.Options, clientCertFile, clientKeyFile string) *http.Client {
+func ReadTLSInfo(s *tls.ConnectionState) *TLSInfo {
+	if s == nil {
+		return nil
+	}
+	info := &TLSInfo{
+		Version:            tls_tools.GetTLSVersionName(s.Version),
+		CipherSuite:        tls.CipherSuiteName(s.CipherSuite),
+		ServerName:         s.ServerName,
+		NegotiatedProtocol: s.NegotiatedProtocol,
+	}
+
+	// Check for mTLS (client certificate authentication)
+	if len(s.PeerCertificates) > 0 {
+		info.ClientAuth = true
+		info.PeerCertificates = len(s.PeerCertificates)
+		info.VerifiedChains = len(s.VerifiedChains)
+
+		// Extract Subject Names from peer certificates
+		var snis []string
+		for _, cert := range s.PeerCertificates {
+			if cert.Subject.CommonName != "" {
+				snis = append(snis, cert.Subject.CommonName)
+			}
+		}
+		if len(snis) > 0 {
+			info.PeerCertificatesSNI = snis
+		}
+	}
+	return info
+}
+
+// BuildHTTPClient creates an HTTP client with options applied
+func BuildHTTPClient(o options.Options) *http.Client {
 	client := &http.Client{
 		Timeout: o.GetTimeout(),
 	}
@@ -202,7 +168,7 @@ func BuildHTTPClientWithCert(o options.Options, clientCertFile, clientKeyFile st
 	}
 
 	// Build TLS config if needed
-	tlsConfig := buildTLSConfig(o, clientCertFile, clientKeyFile)
+	tlsConfig := buildTLSConfig(o)
 	if tlsConfig != nil {
 		client.Transport = &http.Transport{
 			TLSClientConfig: tlsConfig,
@@ -212,50 +178,25 @@ func BuildHTTPClientWithCert(o options.Options, clientCertFile, clientKeyFile st
 	return client
 }
 
-// buildTLSConfig creates a TLS config from options and client certificate files
-func buildTLSConfig(o options.Options, clientCertFile, clientKeyFile string) *tls.Config {
-	var tlsConfig *tls.Config
-
+// buildTLSConfig creates a TLS config from options
+func buildTLSConfig(o options.Options) *tls.Config {
 	insecure := o.IsInsecure()
 	useMTLS := o.WithMTLS()
-	hasCertFiles := clientCertFile != "" && clientKeyFile != ""
 	serverName := o.GetServerName()
 
 	// If we need TLS config, create it
-	if insecure || useMTLS || serverName != "" {
-		tlsConfig = &tls.Config{
-			InsecureSkipVerify: insecure,
-		}
-		tlsConfig.ServerName = serverName
+	if !(insecure || useMTLS || serverName != "") {
+		return nil
+	}
 
-		// Handle mTLS
-		if useMTLS {
-			var cert tls.Certificate
-			var err error
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: insecure,
+		ServerName:         serverName,
+	}
 
-			if hasCertFiles {
-				// Load client certificate from files
-				cert, err = tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to load client certificate from files: %v\n", err)
-					// Try to generate runtime certificate as fallback
-					cert, err = tls_tools.GenerateClientCert()
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Warning: failed to generate client certificate: %v\n", err)
-					}
-				}
-			} else {
-				// Generate client certificate at runtime
-				cert, err = tls_tools.GenerateClientCert()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to generate client certificate: %v\n", err)
-				}
-			}
-
-			if err == nil {
-				tlsConfig.Certificates = []tls.Certificate{cert}
-			}
-		}
+	if useMTLS {
+		// Use the pre-loaded client certificate from tls_tools
+		tlsConfig.Certificates = []tls.Certificate{tls_tools.ClientCert}
 	}
 
 	return tlsConfig

@@ -156,7 +156,7 @@ func TestExecuteRequest_WithHeaders(t *testing.T) {
 	}
 
 	// Verify header was captured in request metadata
-	if result.OutgoingRequest.Headers["Authorization"] != "Bearer token123" {
+	if result.OutgoingRequest.Headers["Authorization"][0] != "Bearer token123" {
 		t.Errorf("Expected Authorization in metadata, got %q", result.OutgoingRequest.Headers["Authorization"])
 	}
 }
@@ -577,7 +577,7 @@ func TestDownstreamProxyMetadata(t *testing.T) {
 	}
 
 	// Execute request (simulating the first hop calling downstream)
-	result := ExecuteRequestWithContext(parsedReq, "", "", nil)
+	result := ExecuteRequestWithContext(parsedReq, nil)
 
 	// Manually set the proxy metadata for the first hop (normally done by server handler)
 	result.Proxy = &ProxyMetadata{

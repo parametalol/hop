@@ -38,19 +38,19 @@ func main() {
 	args := flag.Args()
 	if len(args) > 0 {
 		// Execute request directly instead of starting server
-		executeURLArgument(args[0], *clientCertFile, *clientKeyFile)
+		executeURLArgument(args[0])
 		return
 	}
 
 	// Build config
-	config := &Config{
+	config := &server.Config{
 		HTTPPort:  *httpPort,
 		HTTPSPort: *httpsPort,
-		TLS: TLSConfig{
+		TLS: server.TLSConfig{
 			CertFile:    *certFile,
 			KeyFile:     *keyFile,
-			MinVersion:  parseTLSVersion(*minTLSVersion),
-			MaxVersion:  parseTLSVersion(*maxTLSVersion),
+			MinVersion:  tls_tools.ParseTLSVersion(*minTLSVersion),
+			MaxVersion:  tls_tools.ParseTLSVersion(*maxTLSVersion),
 			DNSNames:    *certDNSNames,
 			IPAddresses: *certIPAddrs,
 		},
@@ -65,14 +65,25 @@ func main() {
 		log.Fatalf("Failed to initialize TLS tools: %v", err)
 	}
 
-	// Set global client certificate paths
-	// Fall back to server cert/key if client cert/key not provided
+	// Prepare client certificate for mTLS
+	// Priority: --client-cert/--client-key > --cert/--key > runtime-generated
 	if *clientCertFile != "" && *clientKeyFile != "" {
 		tls_tools.ClientCertFile = *clientCertFile
 		tls_tools.ClientKeyFile = *clientKeyFile
 	} else if *certFile != "" && *keyFile != "" {
 		tls_tools.ClientCertFile = *certFile
 		tls_tools.ClientKeyFile = *keyFile
+	}
+
+	// Load client certificate from files if provided, otherwise use runtime-generated
+	if tls_tools.ClientCertFile != "" && tls_tools.ClientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(tls_tools.ClientCertFile, tls_tools.ClientKeyFile)
+		if err != nil {
+			log.Printf("Warning: failed to load client certificate from %s: %v", tls_tools.ClientCertFile, err)
+			log.Println("Using runtime-generated client certificate")
+		} else {
+			tls_tools.ClientCert = cert
+		}
 	}
 
 	// Create HTTP handler
@@ -157,22 +168,7 @@ func main() {
 	log.Println("Server stopped")
 }
 
-func parseTLSVersion(version string) uint16 {
-	switch version {
-	case "1.0":
-		return tls.VersionTLS10
-	case "1.1":
-		return tls.VersionTLS11
-	case "1.2":
-		return tls.VersionTLS12
-	case "1.3":
-		return tls.VersionTLS13
-	default:
-		return tls.VersionTLS12
-	}
-}
-
-func executeURLArgument(urlArg, clientCertFile, clientKeyFile string) {
+func executeURLArgument(urlArg string) {
 	// Parse the URL argument
 	parsedReq, err := parser.ParsePath(urlArg)
 	if err != nil {
@@ -183,8 +179,8 @@ func executeURLArgument(urlArg, clientCertFile, clientKeyFile string) {
 		log.Fatal("No URL provided")
 	}
 
-	// Execute the request with client certificate options
-	result := client.ExecuteRequestWithClientCert(parsedReq, clientCertFile, clientKeyFile)
+	// Execute the request
+	result := client.ExecuteRequest(parsedReq)
 
 	// Output the result as JSON
 	output, err := json.MarshalIndent(result, "", "  ")
