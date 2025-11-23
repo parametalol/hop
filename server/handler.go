@@ -14,7 +14,7 @@ import (
 	"github.com/parametalol/hop/tls_tools"
 )
 
-var log = logPkg.New(os.Stdout, "server: ", logPkg.LstdFlags)
+var log = logPkg.New(os.Stderr, "server: ", logPkg.LstdFlags)
 
 func MakeProxyHandler(certManager *tls_tools.CertManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -60,18 +60,19 @@ func proxyHandler(w http.ResponseWriter, r *http.Request, certManager *tls_tools
 
 func readIncomingRequest(r *http.Request) *client.RequestMetadata {
 	md := &client.RequestMetadata{
-		URL:      r.URL.String(),
-		Method:   r.Method,
-		Headers:  r.Header,
-		Protocol: r.Proto,
-		TLS:      client.ReadTLSInfo(r.TLS),
+		URL:    r.URL.String(),
+		Method: r.Method,
+		CommonMetadata: client.CommonMetadata{
+			Headers:  r.Header,
+			Protocol: r.Proto,
+			TLS:      client.ReadTLSInfo(r.TLS),
+		},
 	}
 
 	// Capture incoming request body if present
 	if r.Body != nil {
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err == nil {
-			md.BodyLength = len(bodyBytes)
 			md.Body = string(bodyBytes)
 		}
 		r.Body.Close()

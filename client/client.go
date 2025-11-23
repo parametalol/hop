@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -18,101 +19,98 @@ func ExecuteRequest(parsedReq *parser.ParsedRequest, certManager *tls_tools.Cert
 }
 
 func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, incomingHeaders http.Header, certManager *tls_tools.CertManager) *ProxyResponse {
-	resp := &ProxyResponse{
-		OutgoingRequest: &RequestMetadata{
-			URL: parsedReq.TargetURL,
-		},
-	}
-
 	// Build HTTP client with options applied
 	client := BuildHTTPClient(parsedReq.Options, certManager)
 
 	// Determine HTTP method from options
 	method := parsedReq.Options.GetHTTPMethod()
-	resp.OutgoingRequest.Method = method
+
+	result := &ProxyResponse{
+		OutgoingRequest: &RequestMetadata{
+			URL:    parsedReq.TargetURL,
+			Method: method,
+		},
+	}
 
 	// Get request body from options
-	bodyReader := parsedReq.Options.GetRequestBody()
-	var bodyBytes []byte
-	if bodyReader != nil {
+	reqBodyReader := parsedReq.Options.GetRequestBody()
+	var reqBodyBuf *bytes.Buffer
+	if reqBodyReader != nil {
 		// If it's a closer, defer closing it
-		if closer, ok := bodyReader.(io.Closer); ok {
+		if closer, ok := reqBodyReader.(io.Closer); ok {
 			defer closer.Close()
 		}
 
-		var err error
-		bodyBytes, err = io.ReadAll(bodyReader)
-		if err != nil {
-			resp.Error = fmt.Sprintf("failed to read request body: %v", err)
-			return resp
-		}
-		resp.OutgoingRequest.BodyLength = len(bodyBytes)
-		resp.OutgoingRequest.Body = string(bodyBytes)
-		// Create a new reader from the bytes for the actual request
-		bodyReader = strings.NewReader(string(bodyBytes))
+		// Use TeeReader to capture the body as it's sent
+		reqBodyBuf = new(bytes.Buffer)
+		reqBodyReader = io.TeeReader(reqBodyReader, reqBodyBuf)
 	}
 
 	// Create HTTP request
-	req, err := http.NewRequest(method, parsedReq.TargetURL, bodyReader)
+	req, err := http.NewRequest(method, parsedReq.TargetURL, reqBodyReader)
 	if err != nil {
-		resp.Error = fmt.Sprintf("failed to create request: %v", err)
-		return resp
+		result.Error = fmt.Sprintf("failed to create request: %v", err)
+		return result
 	}
 
-	// Apply headers from options
 	parsedReq.Options.ApplyHeaders(req.Header)
+	parsedReq.Options.ApplyForwardedHeaders(incomingHeaders, req.Header)
 
-	// Apply forwarded headers from incoming request if available
-	if incomingHeaders != nil {
-		parsedReq.Options.ApplyForwardedHeaders(incomingHeaders, req.Header)
-	}
-
-	resp.OutgoingRequest.TLS = ReadTLSInfo(req.TLS)
-	resp.OutgoingRequest.Headers = req.Header
-	resp.OutgoingRequest.Protocol = req.Proto
+	result.OutgoingRequest.TLS = ReadTLSInfo(req.TLS)
+	result.OutgoingRequest.Headers = req.Header
+	result.OutgoingRequest.Protocol = req.Proto
 
 	// Execute request
 	httpResp, err := client.Do(req)
 	if err != nil {
-		resp.Error = fmt.Sprintf("request failed: %v", err)
-		return resp
+		result.Error = fmt.Sprintf("request failed: %v", err)
+		return result
 	}
 	defer httpResp.Body.Close()
 
-	// Read response body
-	bodyBytes, err = io.ReadAll(httpResp.Body)
-	if err != nil {
-		resp.Error = fmt.Sprintf("failed to read response body: %v", err)
-		return resp
+	// After request is sent, capture the request body from the buffer
+	if reqBodyBuf != nil {
+		result.OutgoingRequest.Body = reqBodyBuf.String()
+	}
+
+	var respBodyBytes []byte
+	if !parsedReq.Options.IsDropBody() {
+		// Read response body
+		respBodyBytes, err = io.ReadAll(httpResp.Body)
+		if err != nil {
+			result.Error = fmt.Sprintf("failed to read response body: %v", err)
+			return result
+		}
 	}
 
 	// Build response metadata
-	resp.Response = &ResponseMetadata{
+	result.Response = &ResponseMetadata{
 		StatusCode: httpResp.StatusCode,
 		Status:     httpResp.Status,
-		Headers:    httpResp.Header,
-		Protocol:   httpResp.Proto,
-		BodyLength: len(bodyBytes),
-		TLS:        ReadTLSInfo(httpResp.TLS),
+		CommonMetadata: CommonMetadata{
+			Headers:  httpResp.Header,
+			Protocol: httpResp.Proto,
+			TLS:      ReadTLSInfo(httpResp.TLS),
+		},
 	}
 
 	// Parse body as JSON if content-type is JSON
 	contentType := httpResp.Header.Get("Content-Type")
-	if len(bodyBytes) > 0 {
+	if len(respBodyBytes) > 0 {
 		if strings.Contains(strings.ToLower(contentType), "application/json") {
 			var parsedJSON any
-			if err := json.Unmarshal(bodyBytes, &parsedJSON); err == nil {
-				resp.Response.Body = parsedJSON
+			if err := json.Unmarshal(respBodyBytes, &parsedJSON); err == nil {
+				result.Response.Body = parsedJSON
 			} else {
 				// If JSON parsing fails, fall back to string
-				resp.Response.Body = string(bodyBytes)
+				result.Response.Body = string(respBodyBytes)
 			}
 		} else {
-			resp.Response.Body = string(bodyBytes)
+			result.Response.Body = string(respBodyBytes)
 		}
 	}
 
-	return resp
+	return result
 }
 
 func ReadTLSInfo(s *tls.ConnectionState) *TLSInfo {

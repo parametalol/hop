@@ -566,7 +566,9 @@ func TestDownstreamProxyMetadata(t *testing.T) {
 			Response: &ResponseMetadata{
 				StatusCode: 200,
 				Status:     "200 OK",
-				Body:       map[string]string{"result": "success"},
+				CommonMetadata: CommonMetadata{
+					Body: map[string]string{"result": "success"},
+				},
 			},
 			Proxy: &ProxyMetadata{
 				Hostname:      "downstream-hop",

@@ -2,14 +2,17 @@ package client
 
 import "net/http"
 
+type CommonMetadata struct {
+	Headers  http.Header `json:"headers,omitempty"`
+	Protocol string      `json:"protocol"`
+	TLS      *TLSInfo    `json:"tls,omitempty"`
+	Body     any         `json:"body,omitempty"`
+}
+
 type RequestMetadata struct {
-	URL        string      `json:"url"`
-	Method     string      `json:"method"`
-	Headers    http.Header `json:"headers,omitempty"`
-	Protocol   string      `json:"protocol"`
-	TLS        *TLSInfo    `json:"tls,omitempty"`
-	BodyLength int         `json:"body_length"`
-	Body       string      `json:"body,omitempty"`
+	CommonMetadata
+	URL    string `json:"url"`
+	Method string `json:"method"`
 }
 
 type TLSInfo struct {
@@ -30,13 +33,9 @@ type ProxyMetadata struct {
 }
 
 type ResponseMetadata struct {
-	StatusCode int         `json:"status_code"`
-	Status     string      `json:"status"`
-	Headers    http.Header `json:"headers,omitempty"`
-	Protocol   string      `json:"protocol"`
-	TLS        *TLSInfo    `json:"tls,omitempty"`
-	BodyLength int         `json:"body_length"`
-	Body       any         `json:"body,omitempty"`
+	CommonMetadata
+	StatusCode int    `json:"status_code"`
+	Status     string `json:"status"`
 }
 
 type ProxyResponse struct {

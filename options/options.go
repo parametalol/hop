@@ -21,6 +21,7 @@ const (
 	Method         optionName = "method"
 	Body           optionName = "body"
 	BodyFile       optionName = "body-file"
+	DropBody       optionName = "drop-body"
 	Timeout        optionName = "timeout"
 	Insecure       optionName = "insecure"
 	ServerName     optionName = "tls-server-name"
@@ -45,8 +46,9 @@ var supportedOptions = map[optionName]optionDefinition{
 	// Client options:
 	Headers:        {"H", "set request headers (format: 'Header: Value', newline-separated)"},
 	Method:         {"X", "set HTTP method (GET, POST, PUT, DELETE, etc.)"},
-	Body:           {"b", "set request body content"},
-	BodyFile:       {"bf", "read request body from file"},
+	Body:           {"B", "set request body content"},
+	BodyFile:       {"BF", "read request body from file"},
+	DropBody:       {"DB", "drop the response body"},
 	Timeout:        {"T", "set request timeout in seconds (default: 30)"},
 	Insecure:       {"k", "skip TLS certificate verification"},
 	ServerName:     {"SN", "set TLS server name for SNI"},
@@ -57,7 +59,7 @@ var supportedOptions = map[optionName]optionDefinition{
 	// Server options:
 	Code:          {"C", "return specific HTTP status code"},
 	ServerHeaders: {"SH", "set response headers (format: 'Header: Value', newline-separated)"},
-	Sleep:         {"s", "delay response by specified seconds"},
+	Sleep:         {"S", "delay response by specified seconds"},
 	Exit:          {"E", "terminate server process with exit code"},
 	Panic:         {"P", "crash server process with panic message"},
 }
@@ -75,6 +77,7 @@ func Check(opt string) bool {
 	return false
 }
 
+// values yields the values of the option for long and short names, if set
 func (o Options) values(optName optionName) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		def, ok := supportedOptions[optName]
@@ -109,23 +112,21 @@ func (o Options) GetHTTPMethod() string {
 // GetRequestBody extracts the request body from options
 // If body-file is specified, reads from the file; otherwise uses the body option
 func (o Options) GetRequestBody() io.Reader {
-	// Check for body-file option first (takes precedence)
-	for filePath := range o.values(BodyFile) {
-		file, err := os.Open(filePath)
+	reader := getValue(o, BodyFile, nil, func(val string) io.Reader {
+		file, err := os.Open(val)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to open body file %q: %v\n", filePath, err)
+			fmt.Fprintf(os.Stderr, "Warning: failed to open body file %q: %v\n", val, err)
 			return nil
 		}
 		return file
+	})
+	if reader == nil {
+		// Fall back to body option
+		reader = getValue(o, Body, nil, func(val string) io.Reader {
+			return strings.NewReader(val)
+		})
 	}
-
-	// Fall back to body option
-	for body := range o.values(Body) {
-		if body != "" {
-			return strings.NewReader(body)
-		}
-	}
-	return nil
+	return reader
 }
 
 // GetHTTPStatus determines the HTTP method from options
@@ -191,18 +192,20 @@ func (o Options) ApplyHeaders(h http.Header) {
 
 // ApplyForwardedHeaders forwards specified headers from the incoming request to the outgoing request
 func (o Options) ApplyForwardedHeaders(incomingHeaders, outgoingHeaders http.Header) {
-	for headerSpec := range o.values(ForwardHeaders) {
-		// Support comma-separated list of headers to forward
-		for headerName := range strings.SplitSeq(headerSpec, ",") {
-			headerName = strings.TrimSpace(headerName)
-			if headerName == "" {
-				continue
-			}
-			// Forward the header if it exists in the incoming request
-			if values := incomingHeaders.Values(headerName); len(values) > 0 {
-				for _, v := range values {
-					outgoingHeaders.Add(headerName, v)
-				}
+	if incomingHeaders == nil {
+		return
+	}
+	headerSpec := getValue(o, ForwardHeaders, "", str)
+	// Support comma-separated list of headers to forward
+	for headerName := range strings.SplitSeq(headerSpec, ",") {
+		headerName = strings.TrimSpace(headerName)
+		if headerName == "" {
+			continue
+		}
+		// Forward the header if it exists in the incoming request
+		if values := incomingHeaders.Values(headerName); len(values) > 0 {
+			for _, v := range values {
+				outgoingHeaders.Add(headerName, v)
 			}
 		}
 	}
@@ -238,6 +241,10 @@ func (o Options) IsInsecure() bool {
 
 func (o Options) WithMTLS() bool {
 	return getValue(o, MTLS, false, boolean)
+}
+
+func (o Options) IsDropBody() bool {
+	return getValue(o, DropBody, false, boolean)
 }
 
 // PrintHelp outputs all supported options with their descriptions
