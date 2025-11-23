@@ -1,11 +1,7 @@
 package server
 
 import (
-	"crypto/tls"
 	"fmt"
-	"os"
-
-	"github.com/parametalol/hop/tls_tools"
 )
 
 type Config struct {
@@ -28,51 +24,4 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("at least one of HTTPPort or HTTPSPort must be specified")
 	}
 	return nil
-}
-
-func (c *Config) GetTLSConfig() (*tls.Config, error) {
-	fromFiles := false
-	if c.TLS.CertFile != "" && c.TLS.KeyFile != "" {
-		if _, err := os.Stat(c.TLS.CertFile); err == nil {
-			if _, err := os.Stat(c.TLS.KeyFile); err == nil {
-				fromFiles = true
-			}
-		}
-	}
-
-	var err error
-	if fromFiles {
-		tls_tools.ServerCert, err = tls.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
-		}
-		log.Println("using provided TLS certificate and key files")
-	} else {
-		log.Println("no TLS certificate provided, generating self-signed certificate")
-		tls_tools.ServerCert, err = tls_tools.GenerateSelfSignedCert(c.TLS.DNSNames, c.TLS.IPAddresses)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate self-signed certificate: %w", err)
-		}
-		if c.TLS.DNSNames != "" || c.TLS.IPAddresses != "" {
-			log.Printf("generated self-signed certificate (DNS names: %s, IP addresses: %s)",
-				c.TLS.DNSNames, c.TLS.IPAddresses)
-		} else {
-			log.Println("generated self-signed certificate for localhost")
-		}
-	}
-
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{tls_tools.ServerCert},
-		MinVersion:   tls.VersionTLS12, // Default minimum
-		MaxVersion:   tls.VersionTLS13, // Default maximum
-	}
-
-	if c.TLS.MinVersion != 0 {
-		tlsConfig.MinVersion = c.TLS.MinVersion
-	}
-	if c.TLS.MaxVersion != 0 {
-		tlsConfig.MaxVersion = c.TLS.MaxVersion
-	}
-
-	return tlsConfig, nil
 }

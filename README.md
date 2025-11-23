@@ -33,7 +33,7 @@ The general URL pattern is:
 http://hop-server/[options]/target-url
 ```
 
-Options start with `-` and appear before the target URL. The slashes in the options need to be URL-escaped as `%2f`.
+Options start with `-` and appear before the target URL. The slashes in the options might need to be URL-escaped as `%2f`.
 
 For example:
 
@@ -41,12 +41,15 @@ For example:
 # Simple proxy request
 curl http://localhost:8080/https:%2f%2fapi.example.com/users
 
+# Or
+./hop http://localhost:8080/https://api.example.com/users
+
 # With custom method
 curl http://localhost:8080/-method=POST/https:%2f%2fapi.example.com/users
 
 # Forward headers from incoming request to target
 curl -H "Authorization: Bearer token" \
-  http://localhost:8080/-forward-header=Authorization/https:%2f%2fapi.example.com/users
+  http://localhost:8080/-forward-headers=Authorization/https:%2f%2fapi.example.com/users
 
 # Multiple options
 curl http://localhost:8080/-method=POST/-headers=Content-Type:application%2fjson%2fhttps:%2f%2fapi.example.com/users
@@ -64,7 +67,7 @@ Each option has both a long form (`-option-name`) and a short form (`-X`). For e
 
 - `-method=POST` or `-X=POST` for HTTP method
 - `-headers=...` or `-H=...` for custom headers
-- `-forward-header=...` or `-FH=...` for forwarding headers
+- `-forward-headers=...` or `-FH=...` for forwarding headers
 - `-insecure` or `-k` for skipping TLS verification
 
 ## Option Categories

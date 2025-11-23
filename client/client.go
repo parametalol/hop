@@ -13,11 +13,11 @@ import (
 	"github.com/parametalol/hop/tls_tools"
 )
 
-func ExecuteRequest(parsedReq *parser.ParsedRequest) *ProxyResponse {
-	return ExecuteRequestWithContext(parsedReq, nil)
+func ExecuteRequest(parsedReq *parser.ParsedRequest, certManager *tls_tools.CertManager) *ProxyResponse {
+	return ExecuteRequestWithContext(parsedReq, nil, certManager)
 }
 
-func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, incomingHeaders http.Header) *ProxyResponse {
+func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, incomingHeaders http.Header, certManager *tls_tools.CertManager) *ProxyResponse {
 	resp := &ProxyResponse{
 		OutgoingRequest: &RequestMetadata{
 			URL: parsedReq.TargetURL,
@@ -25,7 +25,7 @@ func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, incomingHeaders 
 	}
 
 	// Build HTTP client with options applied
-	client := BuildHTTPClient(parsedReq.Options)
+	client := BuildHTTPClient(parsedReq.Options, certManager)
 
 	// Determine HTTP method from options
 	method := parsedReq.Options.GetHTTPMethod()
@@ -90,17 +90,10 @@ func ExecuteRequestWithContext(parsedReq *parser.ParsedRequest, incomingHeaders 
 	resp.Response = &ResponseMetadata{
 		StatusCode: httpResp.StatusCode,
 		Status:     httpResp.Status,
-		Headers:    make(map[string]string),
+		Headers:    httpResp.Header,
 		Protocol:   httpResp.Proto,
 		BodyLength: len(bodyBytes),
 		TLS:        ReadTLSInfo(httpResp.TLS),
-	}
-
-	// Capture response headers
-	for k, v := range httpResp.Header {
-		if len(v) > 0 {
-			resp.Response.Headers[k] = v[0]
-		}
 	}
 
 	// Parse body as JSON if content-type is JSON
@@ -154,7 +147,7 @@ func ReadTLSInfo(s *tls.ConnectionState) *TLSInfo {
 }
 
 // BuildHTTPClient creates an HTTP client with options applied
-func BuildHTTPClient(o options.Options) *http.Client {
+func BuildHTTPClient(o options.Options, certManager *tls_tools.CertManager) *http.Client {
 	client := &http.Client{
 		Timeout: o.GetTimeout(),
 	}
@@ -167,7 +160,7 @@ func BuildHTTPClient(o options.Options) *http.Client {
 		}
 	}
 
-	if tlsConfig := buildTLSConfig(o); tlsConfig != nil {
+	if tlsConfig := buildTLSConfig(o, certManager); tlsConfig != nil {
 		client.Transport = &http.Transport{
 			TLSClientConfig: tlsConfig,
 		}
@@ -177,23 +170,23 @@ func BuildHTTPClient(o options.Options) *http.Client {
 }
 
 // buildTLSConfig creates a TLS config from options
-func buildTLSConfig(o options.Options) *tls.Config {
+func buildTLSConfig(o options.Options, certManager *tls_tools.CertManager) *tls.Config {
 	insecure := o.IsInsecure()
 	useMTLS := o.WithMTLS()
 	serverName := o.GetServerName()
 
-	if serverName == "" && tls_tools.CACertPool == nil && !useMTLS {
+	if serverName == "" && certManager.CACertPool == nil && !useMTLS && !insecure {
 		return nil
 	}
 
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: insecure,
 		ServerName:         serverName,
-		RootCAs:            tls_tools.CACertPool,
+		RootCAs:            certManager.CACertPool,
 	}
 
 	if useMTLS {
-		tlsConfig.Certificates = []tls.Certificate{tls_tools.ClientCert}
+		tlsConfig.Certificates = []tls.Certificate{certManager.ClientCert}
 	}
 
 	return tlsConfig

@@ -39,8 +39,34 @@ func main() {
 	args := flag.Args()
 	if len(args) > 0 {
 		// Execute request directly instead of starting server
-		executeURLArgument(args[0])
+		executeURLArgument(args[0], *clientCertFile, *clientKeyFile, *caFile)
 		return
+	}
+
+	// Determine which client certificate to use
+	// Priority: --client-cert/--client-key > --cert/--key > runtime-generated
+	var clientCertToUse, clientKeyToUse string
+	if *clientCertFile != "" && *clientKeyFile != "" {
+		clientCertToUse = *clientCertFile
+		clientKeyToUse = *clientKeyFile
+	} else if *certFile != "" && *keyFile != "" {
+		clientCertToUse = *certFile
+		clientKeyToUse = *keyFile
+		log.Printf("Using client key from %q and certificate from %q", *keyFile, *certFile)
+	}
+
+	// Initialize certificate manager
+	certManager, err := tls_tools.New(&tls_tools.Config{
+		ClientCertFile: clientCertToUse,
+		ClientKeyFile:  clientKeyToUse,
+		ServerCertFile: *certFile,
+		ServerKeyFile:  *keyFile,
+		DNSNames:       *certDNSNames,
+		IPAddresses:    *certIPAddrs,
+		CAFile:         *caFile,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize certificate manager: %v", err)
 	}
 
 	// Build config
@@ -61,46 +87,11 @@ func main() {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
 
-	// Initialize TLS tools (generate keys for runtime certificate generation)
-	if err := tls_tools.Init(); err != nil {
-		log.Fatalf("Failed to initialize TLS tools: %v", err)
-	}
-
-	// Prepare client certificate for mTLS
-	// Priority: --client-cert/--client-key > --cert/--key > runtime-generated
-	if *clientCertFile != "" && *clientKeyFile != "" {
-		tls_tools.ClientCertFile = *clientCertFile
-		tls_tools.ClientKeyFile = *clientKeyFile
-	} else if *certFile != "" && *keyFile != "" {
-		tls_tools.ClientCertFile = *certFile
-		tls_tools.ClientKeyFile = *keyFile
-		log.Printf("Using client key from %q and certificate from %q", *keyFile, *certFile)
-	}
-
-	// Load client certificate from files if provided, otherwise use runtime-generated
-	if tls_tools.ClientCertFile != "" && tls_tools.ClientKeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(tls_tools.ClientCertFile, tls_tools.ClientKeyFile)
-		if err != nil {
-			log.Printf("Warning: failed to load client certificate from %s: %v", tls_tools.ClientCertFile, err)
-			log.Println("Using runtime-generated client certificate")
-		} else {
-			tls_tools.ClientCert = cert
-		}
-	}
-
-	// Load custom CA certificate if provided
-	if *caFile != "" {
-		if err := tls_tools.LoadCAFromFile(*caFile); err != nil {
-			log.Fatalf("Failed to load CA certificate: %v", err)
-		}
-		log.Printf("Loaded custom CA certificate from %s", *caFile)
-	}
-
 	// Create HTTP handler
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", server.ProxyHandler)
-	mux.HandleFunc("/.well-known/server-cert.pem", server.ServerCertHandler(config))
-	mux.HandleFunc("/.well-known/client-cert.pem", server.ClientCertHandler())
+	mux.HandleFunc("/", server.MakeProxyHandler(certManager))
+	mux.HandleFunc("/.well-known/server-cert.pem", server.ServerCertHandler(certManager))
+	mux.HandleFunc("/.well-known/client-cert.pem", server.ClientCertHandler(certManager))
 
 	// Channel to collect server errors
 	errChan := make(chan error, 2)
@@ -124,7 +115,10 @@ func main() {
 	// Start HTTPS server if enabled
 	var httpsServer *http.Server
 	if config.HTTPSPort > 0 {
-		tlsConfig, err := config.GetTLSConfig()
+		tlsConfig, err := certManager.GetServerTLSConfig(
+			max(config.TLS.MinVersion, tls.VersionTLS12),
+			max(config.TLS.MaxVersion, tls.VersionTLS13))
+
 		if err != nil {
 			log.Fatalf("Failed to get TLS config: %v", err)
 		}
@@ -180,7 +174,17 @@ func main() {
 	log.Println("Server stopped")
 }
 
-func executeURLArgument(urlArg string) {
+func executeURLArgument(urlArg, clientCertFile, clientKeyFile, caFile string) {
+	// Initialize certificate manager
+	certManager, err := tls_tools.New(&tls_tools.Config{
+		ClientCertFile: clientCertFile,
+		ClientKeyFile:  clientKeyFile,
+		CAFile:         caFile,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize certificate manager: %v", err)
+	}
+
 	// Parse the URL argument
 	parsedReq, err := parser.ParsePath(urlArg)
 	if err != nil {
@@ -192,7 +196,7 @@ func executeURLArgument(urlArg string) {
 	}
 
 	// Execute the request
-	result := client.ExecuteRequest(parsedReq)
+	result := client.ExecuteRequest(parsedReq, certManager)
 
 	// Output the result as JSON
 	output, err := json.MarshalIndent(result, "", "  ")

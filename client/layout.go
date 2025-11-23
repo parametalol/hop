@@ -1,13 +1,15 @@
 package client
 
+import "net/http"
+
 type RequestMetadata struct {
-	URL        string              `json:"url"`
-	Method     string              `json:"method"`
-	Headers    map[string][]string `json:"headers,omitempty"`
-	Protocol   string              `json:"protocol"`
-	TLS        *TLSInfo            `json:"tls,omitempty"`
-	BodyLength int                 `json:"body_length"`
-	Body       string              `json:"body,omitempty"`
+	URL        string      `json:"url"`
+	Method     string      `json:"method"`
+	Headers    http.Header `json:"headers,omitempty"`
+	Protocol   string      `json:"protocol"`
+	TLS        *TLSInfo    `json:"tls,omitempty"`
+	BodyLength int         `json:"body_length"`
+	Body       string      `json:"body,omitempty"`
 }
 
 type TLSInfo struct {
@@ -28,13 +30,13 @@ type ProxyMetadata struct {
 }
 
 type ResponseMetadata struct {
-	StatusCode int               `json:"status_code"`
-	Status     string            `json:"status"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Protocol   string            `json:"protocol"`
-	TLS        *TLSInfo          `json:"tls,omitempty"`
-	BodyLength int               `json:"body_length"`
-	Body       any               `json:"body,omitempty"`
+	StatusCode int         `json:"status_code"`
+	Status     string      `json:"status"`
+	Headers    http.Header `json:"headers,omitempty"`
+	Protocol   string      `json:"protocol"`
+	TLS        *TLSInfo    `json:"tls,omitempty"`
+	BodyLength int         `json:"body_length"`
+	Body       any         `json:"body,omitempty"`
 }
 
 type ProxyResponse struct {

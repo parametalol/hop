@@ -16,7 +16,13 @@ import (
 
 var log = logPkg.New(os.Stdout, "server: ", logPkg.LstdFlags)
 
-func ProxyHandler(w http.ResponseWriter, r *http.Request) {
+func MakeProxyHandler(certManager *tls_tools.CertManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		proxyHandler(w, r, certManager)
+	}
+}
+
+func proxyHandler(w http.ResponseWriter, r *http.Request, certManager *tls_tools.CertManager) {
 	log.Printf("Received %s request to %s", r.Method, r.URL.Path)
 
 	// Collect proxy metadata
@@ -41,7 +47,7 @@ func ProxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	// Capture incoming request headers
 
-	statusCode := proxyCall(parsedReq, proxyResp, w, r)
+	statusCode := proxyCall(parsedReq, proxyResp, w, r, certManager)
 
 	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
@@ -73,7 +79,7 @@ func readIncomingRequest(r *http.Request) *client.RequestMetadata {
 	return md
 }
 
-func proxyCall(parsedReq *parser.ParsedRequest, proxyResp *client.ProxyResponse, w http.ResponseWriter, r *http.Request) int {
+func proxyCall(parsedReq *parser.ParsedRequest, proxyResp *client.ProxyResponse, w http.ResponseWriter, r *http.Request, certManager *tls_tools.CertManager) int {
 	if parsedReq == nil {
 		return http.StatusOK
 	}
@@ -110,7 +116,7 @@ func proxyCall(parsedReq *parser.ParsedRequest, proxyResp *client.ProxyResponse,
 
 	// Execute outgoing request if there's a target URL
 	if parsedReq.TargetURL != "" {
-		outgoingResp := client.ExecuteRequestWithContext(parsedReq, r.Header)
+		outgoingResp := client.ExecuteRequestWithContext(parsedReq, r.Header, certManager)
 		if outgoingResp != nil {
 			// Copy the outgoing request and response data
 			proxyResp.OutgoingRequest = outgoingResp.OutgoingRequest
@@ -140,19 +146,19 @@ func respondError(w http.ResponseWriter, statusCode int, message string) {
 }
 
 // ServerCertHandler returns the server certificate in PEM format
-func ServerCertHandler(config *Config) http.HandlerFunc {
+func ServerCertHandler(certManager *tls_tools.CertManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-pem-file")
 
 		// Return the stored server certificate
-		if len(tls_tools.ServerCert.Certificate) == 0 {
+		if len(certManager.ServerCert.Certificate) == 0 {
 			http.Error(w, "No server certificate available", http.StatusInternalServerError)
 			return
 		}
 
 		certPEM := pem.EncodeToMemory(&pem.Block{
 			Type:  "CERTIFICATE",
-			Bytes: tls_tools.ServerCert.Certificate[0],
+			Bytes: certManager.ServerCert.Certificate[0],
 		})
 
 		w.Write(certPEM)
@@ -160,19 +166,19 @@ func ServerCertHandler(config *Config) http.HandlerFunc {
 }
 
 // ClientCertHandler returns the client certificate in PEM format
-func ClientCertHandler() http.HandlerFunc {
+func ClientCertHandler(certManager *tls_tools.CertManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-pem-file")
 
 		// Return the pre-loaded client certificate
-		if len(tls_tools.ClientCert.Certificate) == 0 {
+		if len(certManager.ClientCert.Certificate) == 0 {
 			http.Error(w, "No client certificate available", http.StatusInternalServerError)
 			return
 		}
 
 		certPEM := pem.EncodeToMemory(&pem.Block{
 			Type:  "CERTIFICATE",
-			Bytes: tls_tools.ClientCert.Certificate[0],
+			Bytes: certManager.ClientCert.Certificate[0],
 		})
 
 		w.Write(certPEM)

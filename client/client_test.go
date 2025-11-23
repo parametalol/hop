@@ -9,7 +9,16 @@ import (
 	"time"
 
 	"github.com/parametalol/hop/parser"
+	"github.com/parametalol/hop/tls_tools"
 )
+
+func mustNewCertManager(t *testing.T) *tls_tools.CertManager {
+	cm, err := tls_tools.New(nil)
+	if err != nil {
+		t.Fatalf("Failed to create cert manager: %v", err)
+	}
+	return cm
+}
 
 func TestExecuteRequest_BasicGET(t *testing.T) {
 	// Create a test HTTP server
@@ -36,7 +45,7 @@ func TestExecuteRequest_BasicGET(t *testing.T) {
 	}
 
 	// Execute request
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	// Verify no error
 	if result.Error != "" {
@@ -55,7 +64,7 @@ func TestExecuteRequest_BasicGET(t *testing.T) {
 	if result.Response.StatusCode != 200 {
 		t.Errorf("Expected status code 200, got %d", result.Response.StatusCode)
 	}
-	if result.Response.Headers["Content-Type"] != "application/json" {
+	if result.Response.Headers["Content-Type"][0] != "application/json" {
 		t.Errorf("Expected Content-Type application/json, got %s", result.Response.Headers["Content-Type"])
 	}
 
@@ -100,7 +109,7 @@ func TestExecuteRequest_POST(t *testing.T) {
 	}
 
 	// Execute request
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	// Verify no error
 	if result.Error != "" {
@@ -143,7 +152,7 @@ func TestExecuteRequest_WithHeaders(t *testing.T) {
 	}
 
 	// Execute request
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	// Verify no error
 	if result.Error != "" {
@@ -199,7 +208,7 @@ func TestExecuteRequest_MethodAliases(t *testing.T) {
 				},
 			}
 
-			result := ExecuteRequest(parsedReq)
+			result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 			if result.Error != "" {
 				t.Errorf("Expected no error, got: %s", result.Error)
@@ -263,7 +272,7 @@ func TestExecuteRequest_JSONParsing(t *testing.T) {
 				Options:   map[string]string{},
 			}
 
-			result := ExecuteRequest(parsedReq)
+			result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 			if result.Error != "" {
 				t.Errorf("Expected no error, got: %s", result.Error)
@@ -290,7 +299,7 @@ func TestExecuteRequest_InvalidURL(t *testing.T) {
 		Options:   map[string]string{},
 	}
 
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	if result.Error == "" {
 		t.Error("Expected error for invalid URL, got none")
@@ -311,17 +320,17 @@ func TestExecuteRequest_ResponseHeaders(t *testing.T) {
 		Options:   map[string]string{},
 	}
 
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	if result.Error != "" {
 		t.Errorf("Expected no error, got: %s", result.Error)
 	}
 
-	if result.Response.Headers["X-Custom-Header"] != "custom-value" {
+	if result.Response.Headers["X-Custom-Header"][0] != "custom-value" {
 		t.Errorf("Expected X-Custom-Header=custom-value, got %s", result.Response.Headers["X-Custom-Header"])
 	}
 
-	if result.Response.Headers["X-Request-Id"] != "12345" {
+	if result.Response.Headers["X-Request-Id"][0] != "12345" {
 		t.Errorf("Expected X-Request-Id=12345, got %s", result.Response.Headers["X-Request-Id"])
 	}
 }
@@ -344,7 +353,7 @@ func TestExecuteRequest_CustomTimeout(t *testing.T) {
 		},
 	}
 
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	// Should get a timeout error
 	if result.Error == "" {
@@ -373,7 +382,7 @@ func TestExecuteRequest_CustomTimeoutSuccess(t *testing.T) {
 		},
 	}
 
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	// Should succeed
 	if result.Error != "" {
@@ -399,7 +408,7 @@ func TestExecuteRequest_InvalidTimeout(t *testing.T) {
 		},
 	}
 
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	// Should succeed with default timeout
 	if result.Error != "" {
@@ -429,7 +438,7 @@ func TestExecuteRequest_NoFollowRedirect(t *testing.T) {
 		},
 	}
 
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	if result.Error != "" {
 		t.Errorf("Expected no error, got: %s", result.Error)
@@ -441,7 +450,7 @@ func TestExecuteRequest_NoFollowRedirect(t *testing.T) {
 	}
 
 	// Should have Location header
-	if result.Response.Headers["Location"] != "/target" {
+	if result.Response.Headers["Location"][0] != "/target" {
 		t.Errorf("Expected Location header '/target', got %s", result.Response.Headers["Location"])
 	}
 }
@@ -468,7 +477,7 @@ func TestExecuteRequest_FollowRedirect(t *testing.T) {
 		Options:   map[string]string{},
 	}
 
-	result := ExecuteRequest(parsedReq)
+	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
 	if result.Error != "" {
 		t.Errorf("Expected no error, got: %s", result.Error)
@@ -577,7 +586,7 @@ func TestDownstreamProxyMetadata(t *testing.T) {
 	}
 
 	// Execute request (simulating the first hop calling downstream)
-	result := ExecuteRequestWithContext(parsedReq, nil)
+	result := ExecuteRequestWithContext(parsedReq, nil, mustNewCertManager(t))
 
 	// Manually set the proxy metadata for the first hop (normally done by server handler)
 	result.Proxy = &ProxyMetadata{
