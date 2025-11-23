@@ -45,7 +45,7 @@ func New(cfg *Config) (*CertManager, error) {
 	// Try to load client certificate from files if provided
 	clientCertLoaded := false
 	if cfg != nil && cfg.ClientCertFile != "" && cfg.ClientKeyFile != "" {
-		if err := cm.LoadClientCertFromFile(cfg.ClientCertFile, cfg.ClientKeyFile); err == nil {
+		if err := cm.loadClientCertFromFile(cfg.ClientCertFile, cfg.ClientKeyFile); err == nil {
 			clientCertLoaded = true
 		}
 	}
@@ -53,7 +53,7 @@ func New(cfg *Config) (*CertManager, error) {
 	// Try to load server certificate from files if provided
 	serverCertLoaded := false
 	if cfg != nil && cfg.ServerCertFile != "" && cfg.ServerKeyFile != "" {
-		if err := cm.LoadServerCertFromFile(cfg.ServerCertFile, cfg.ServerKeyFile); err == nil {
+		if err := cm.loadServerCertFromFile(cfg.ServerCertFile, cfg.ServerKeyFile); err == nil {
 			serverCertLoaded = true
 		}
 	}
@@ -83,7 +83,7 @@ func New(cfg *Config) (*CertManager, error) {
 
 		// Generate server certificate if not loaded and DNS/IP info provided
 		if !serverCertLoaded && cfg != nil && (cfg.DNSNames != "" || cfg.IPAddresses != "") {
-			if err := cm.GenerateServerCert(cfg.DNSNames, cfg.IPAddresses); err != nil {
+			if err := cm.generateServerCert(cfg.DNSNames, cfg.IPAddresses); err != nil {
 				return nil, fmt.Errorf("failed to generate server certificate: %w", err)
 			}
 		}
@@ -104,8 +104,8 @@ func New(cfg *Config) (*CertManager, error) {
 	return cm, nil
 }
 
-// LoadClientCertFromFile loads a client certificate from files
-func (cm *CertManager) LoadClientCertFromFile(certFile, keyFile string) error {
+// loadClientCertFromFile loads a client certificate from files
+func (cm *CertManager) loadClientCertFromFile(certFile, keyFile string) error {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return fmt.Errorf("failed to load client certificate: %w", err)
@@ -114,8 +114,8 @@ func (cm *CertManager) LoadClientCertFromFile(certFile, keyFile string) error {
 	return nil
 }
 
-// LoadServerCertFromFile loads a server certificate from files
-func (cm *CertManager) LoadServerCertFromFile(certFile, keyFile string) error {
+// loadServerCertFromFile loads a server certificate from files
+func (cm *CertManager) loadServerCertFromFile(certFile, keyFile string) error {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return fmt.Errorf("failed to load server certificate: %w", err)
@@ -124,8 +124,8 @@ func (cm *CertManager) LoadServerCertFromFile(certFile, keyFile string) error {
 	return nil
 }
 
-// GenerateServerCert generates a self-signed server certificate
-func (cm *CertManager) GenerateServerCert(dnsNamesCSV, ipAddrsCSV string) error {
+// generateServerCert generates a self-signed server certificate
+func (cm *CertManager) generateServerCert(dnsNamesCSV, ipAddrsCSV string) error {
 	cert, err := cm.generateSelfSignedCert(dnsNamesCSV, ipAddrsCSV)
 	if err != nil {
 		return err
@@ -156,7 +156,7 @@ func (cm *CertManager) GetServerTLSConfig(minVersion, maxVersion uint16) (*tls.C
 	if len(cm.ServerCert.Certificate) == 0 {
 		// No server certificate loaded, need to generate one
 		fmt.Println("no TLS certificate provided, generating self-signed certificate for localhost")
-		if err := cm.GenerateServerCert("", ""); err != nil {
+		if err := cm.generateServerCert("", ""); err != nil {
 			return nil, fmt.Errorf("failed to generate self-signed certificate: %w", err)
 		}
 	}
