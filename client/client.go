@@ -167,9 +167,7 @@ func BuildHTTPClient(o options.Options) *http.Client {
 		}
 	}
 
-	// Build TLS config if needed
-	tlsConfig := buildTLSConfig(o)
-	if tlsConfig != nil {
+	if tlsConfig := buildTLSConfig(o); tlsConfig != nil {
 		client.Transport = &http.Transport{
 			TLSClientConfig: tlsConfig,
 		}
@@ -184,18 +182,17 @@ func buildTLSConfig(o options.Options) *tls.Config {
 	useMTLS := o.WithMTLS()
 	serverName := o.GetServerName()
 
-	// If we need TLS config, create it
-	if !(insecure || useMTLS || serverName != "") {
+	if serverName == "" && tls_tools.CACertPool == nil && !useMTLS {
 		return nil
 	}
 
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: insecure,
 		ServerName:         serverName,
+		RootCAs:            tls_tools.CACertPool,
 	}
 
 	if useMTLS {
-		// Use the pre-loaded client certificate from tls_tools
 		tlsConfig.Certificates = []tls.Certificate{tls_tools.ClientCert}
 	}
 

@@ -31,6 +31,7 @@ func main() {
 	certIPAddrs := flag.String("cert-ip-addrs", "", "Comma-separated IP addresses for self-signed certificate (e.g., '192.168.1.1,10.0.0.1')")
 	clientCertFile := flag.String("client-cert", "", "Client TLS certificate file for mTLS")
 	clientKeyFile := flag.String("client-key", "", "Client TLS key file for mTLS")
+	caFile := flag.String("ca", "", "Custom CA certificate file for verifying server certificates")
 
 	flag.Parse()
 
@@ -84,6 +85,14 @@ func main() {
 		} else {
 			tls_tools.ClientCert = cert
 		}
+	}
+
+	// Load custom CA certificate if provided
+	if *caFile != "" {
+		if err := tls_tools.LoadCAFromFile(*caFile); err != nil {
+			log.Fatalf("Failed to load CA certificate: %v", err)
+		}
+		log.Printf("Loaded custom CA certificate from %s", *caFile)
 	}
 
 	// Create HTTP handler

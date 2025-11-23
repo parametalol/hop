@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"os"
 	"strings"
 	"time"
 )
@@ -22,6 +23,7 @@ var (
 
 	ClientCert tls.Certificate
 	ServerCert tls.Certificate
+	CACertPool *x509.CertPool
 
 	privateKey      *ecdsa.PrivateKey
 	privateKeyBytes []byte
@@ -177,4 +179,19 @@ func ParseTLSVersion(version string) uint16 {
 	default:
 		return tls.VersionTLS12
 	}
+}
+
+// LoadCAFromFile loads a CA certificate from a PEM file and stores it in CACertPool
+func LoadCAFromFile(caFile string) error {
+	caPEM, err := os.ReadFile(caFile)
+	if err != nil {
+		return fmt.Errorf("failed to read CA file: %w", err)
+	}
+
+	CACertPool = x509.NewCertPool()
+	if !CACertPool.AppendCertsFromPEM(caPEM) {
+		return fmt.Errorf("failed to parse CA certificate")
+	}
+
+	return nil
 }
