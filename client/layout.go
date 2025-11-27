@@ -13,6 +13,7 @@ type RequestMetadata struct {
 	CommonMetadata
 	URL    string `json:"url"`
 	Method string `json:"method"`
+	Host   string `json:"host,omitempty"`
 }
 
 type TLSInfo struct {

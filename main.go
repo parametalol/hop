@@ -103,11 +103,8 @@ func main() {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
 
-	// Create HTTP handler
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", server.MakeProxyHandler(certManager))
-	mux.HandleFunc("/.well-known/server-cert.pem", server.ServerCertHandler(certManager))
-	mux.HandleFunc("/.well-known/client-cert.pem", server.ClientCertHandler(certManager))
+	// Create HTTP and HTTPS handlers separately (they have different listening addresses)
+	// We'll set up the handlers when creating the servers
 
 	// Channel to collect server errors
 	errChan := make(chan error, 2)
@@ -115,9 +112,15 @@ func main() {
 	// Start HTTP server if enabled
 	var httpServer *http.Server
 	if config.HTTPPort > 0 {
+		httpAddr := fmt.Sprintf(":%d", config.HTTPPort)
+		httpMux := http.NewServeMux()
+		httpMux.HandleFunc("/", server.MakeProxyHandler(certManager, httpAddr))
+		httpMux.HandleFunc("/.well-known/server-cert.pem", server.ServerCertHandler(certManager))
+		httpMux.HandleFunc("/.well-known/client-cert.pem", server.ClientCertHandler(certManager))
+
 		httpServer = &http.Server{
-			Addr:    fmt.Sprintf(":%d", config.HTTPPort),
-			Handler: mux,
+			Addr:    httpAddr,
+			Handler: httpMux,
 		}
 
 		go func() {
@@ -139,9 +142,15 @@ func main() {
 			log.Fatalf("Failed to get TLS config: %v", err)
 		}
 
+		httpsAddr := fmt.Sprintf(":%d", config.HTTPSPort)
+		httpsMux := http.NewServeMux()
+		httpsMux.HandleFunc("/", server.MakeProxyHandler(certManager, httpsAddr))
+		httpsMux.HandleFunc("/.well-known/server-cert.pem", server.ServerCertHandler(certManager))
+		httpsMux.HandleFunc("/.well-known/client-cert.pem", server.ClientCertHandler(certManager))
+
 		httpsServer = &http.Server{
-			Addr:      fmt.Sprintf(":%d", config.HTTPSPort),
-			Handler:   mux,
+			Addr:      httpsAddr,
+			Handler:   httpsMux,
 			TLSConfig: tlsConfig,
 		}
 

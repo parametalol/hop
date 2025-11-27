@@ -16,20 +16,20 @@ import (
 
 var log = logPkg.New(os.Stderr, "server: ", logPkg.LstdFlags)
 
-func MakeProxyHandler(certManager *tls_tools.CertManager) http.HandlerFunc {
+func MakeProxyHandler(certManager *tls_tools.CertManager, listeningAddr string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proxyHandler(w, r, certManager)
+		proxyHandler(w, r, certManager, listeningAddr)
 	}
 }
 
-func proxyHandler(w http.ResponseWriter, r *http.Request, certManager *tls_tools.CertManager) {
+func proxyHandler(w http.ResponseWriter, r *http.Request, certManager *tls_tools.CertManager, listeningAddr string) {
 	log.Printf("Received %s request to %s", r.Method, r.URL.Path)
 
 	// Collect proxy metadata
 	hostname, _ := os.Hostname()
 	proxyMetadata := &client.ProxyMetadata{
 		Hostname:      hostname,
-		ListeningAddr: r.Host,
+		ListeningAddr: listeningAddr,
 		LocalTime:     time.Now().Format(time.RFC3339),
 	}
 
@@ -62,6 +62,7 @@ func readIncomingRequest(r *http.Request) *client.RequestMetadata {
 	md := &client.RequestMetadata{
 		URL:    r.URL.String(),
 		Method: r.Method,
+		Host:   r.Host,
 		CommonMetadata: client.CommonMetadata{
 			Headers:  r.Header,
 			Protocol: r.Proto,
