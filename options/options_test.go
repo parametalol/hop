@@ -35,7 +35,7 @@ func TestGetSleepDuration(t *testing.T) {
 		},
 		{
 			name:     "short form",
-			options:  Options{"s": "3"},
+			options:  Options{"S": "3"},
 			expected: 3 * time.Second,
 		},
 		{
@@ -166,8 +166,8 @@ func TestApplyForwardedHeaders(t *testing.T) {
 				return h
 			},
 			expectedHeaders: map[string][]string{
-				"X-Trace-Id":   {"trace-123"},
-				"X-Request-Id": {"req-456"},
+				"X-Trace-Id":    {"trace-123"},
+				"X-Request-Id":  {"req-456"},
 				"Authorization": {"Bearer token"},
 			},
 		},

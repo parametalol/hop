@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,8 +90,7 @@ func TestExecuteRequest_POST(t *testing.T) {
 		}
 
 		// Read and store body
-		buf := make([]byte, r.ContentLength)
-		r.Body.Read(buf)
+		buf, _ := io.ReadAll(r.Body)
 		receivedBody = string(buf)
 
 		// Send response
@@ -111,9 +111,25 @@ func TestExecuteRequest_POST(t *testing.T) {
 	// Execute request
 	result := ExecuteRequest(parsedReq, mustNewCertManager(t))
 
+	if result == nil {
+		t.Errorf("unexpected nil result")
+		return
+	}
+
+	if result.Response == nil {
+		t.Errorf("unexpected nil result.Response")
+		return
+	}
+
+	if result.OutgoingRequest == nil {
+		t.Errorf("unexpected nil result.OutgoingRequest")
+		return
+	}
+
 	// Verify no error
 	if result.Error != "" {
 		t.Errorf("Expected no error, got: %s", result.Error)
+		return
 	}
 
 	// Verify request metadata
